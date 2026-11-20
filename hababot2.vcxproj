@@ -1,0 +1,227 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <Import Project="packages\libcpr.1.14.2\build\native\libcpr.props" Condition="Exists('packages\libcpr.1.14.2\build\native\libcpr.props')" />
+  <Import Project="packages\rmt_zlib.1.2.8.7\build\native\rmt_zlib.props" Condition="Exists('packages\rmt_zlib.1.2.8.7\build\native\rmt_zlib.props')" />
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|x64">
+      <Configuration>Debug</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|x64">
+      <Configuration>Release</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <VCProjectVersion>18.0</VCProjectVersion>
+    <Keyword>Win32Proj</Keyword>
+    <ProjectGuid>{6dcb84d0-f05f-45ca-a801-82847191cb14}</ProjectGuid>
+    <RootNamespace>hababot2</RootNamespace>
+    <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
+    <VcpkgTriplet Condition="'$(Platform)'=='x64'">x64-windows-static</VcpkgTriplet>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <UseDebugLibraries>true</UseDebugLibraries>
+    <PlatformToolset>v145</PlatformToolset>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <UseDebugLibraries>false</UseDebugLibraries>
+    <PlatformToolset>v145</PlatformToolset>
+    <WholeProgramOptimization>true</WholeProgramOptimization>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ImportGroup Label="ExtensionSettings">
+  </ImportGroup>
+  <ImportGroup Label="Shared">
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <PropertyGroup Label="UserMacros" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
+    <Linkages-rmt_zlib>static</Linkages-rmt_zlib>
+  </PropertyGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <ClCompile>
+      <WarningLevel>Level3</WarningLevel>
+      <SDLCheck>true</SDLCheck>
+      <PreprocessorDefinitions>_DEBUG;_CONSOLE;%(PreprocessorDefinitions);_WIN32_WINNT=0x0601</PreprocessorDefinitions>
+      <ConformanceMode>true</ConformanceMode>
+      <LanguageStandard>stdcpp20</LanguageStandard>
+      <AdditionalIncludeDirectories>$(SolutionDir)imgui</AdditionalIncludeDirectories>
+      <MultiProcessorCompilation>true</MultiProcessorCompilation>
+      <AdditionalOptions>/bigobj %(AdditionalOptions)</AdditionalOptions>
+      <EnableParallelCodeGeneration>true</EnableParallelCodeGeneration>
+    </ClCompile>
+    <Link>
+      <SubSystem>Console</SubSystem>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <AdditionalLibraryDirectories>$(SolutionDir)boost/libs</AdditionalLibraryDirectories>
+    </Link>
+    <Manifest>
+      <EnableSegmentHeap>true</EnableSegmentHeap>
+    </Manifest>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <ClCompile>
+      <WarningLevel>Level3</WarningLevel>
+      <FunctionLevelLinking>true</FunctionLevelLinking>
+      <IntrinsicFunctions>true</IntrinsicFunctions>
+      <SDLCheck>true</SDLCheck>
+      <PreprocessorDefinitions>NDEBUG;_CONSOLE;%(PreprocessorDefinitions);_WIN32_WINNT=0x0601</PreprocessorDefinitions>
+      <ConformanceMode>true</ConformanceMode>
+      <LanguageStandard>stdcpp20</LanguageStandard>
+      <AdditionalIncludeDirectories>$(SolutionDir)src;$(SolutionDir)imgui</AdditionalIncludeDirectories>
+      <MultiProcessorCompilation>true</MultiProcessorCompilation>
+      <AdditionalOptions>/bigobj %(AdditionalOptions)</AdditionalOptions>
+      <EnableParallelCodeGeneration>true</EnableParallelCodeGeneration>
+      <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
+      <RuntimeTypeInfo>false</RuntimeTypeInfo>
+    </ClCompile>
+    <Link>
+      <SubSystem>Windows</SubSystem>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <AdditionalLibraryDirectories>$(SolutionDir)boost/libs</AdditionalLibraryDirectories>
+      <EntryPointSymbol>mainCRTStartup</EntryPointSymbol>
+    </Link>
+    <Manifest>
+      <EnableSegmentHeap>true</EnableSegmentHeap>
+    </Manifest>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <ClCompile Include="imgui\backends\imgui_impl_dx11.cpp" />
+    <ClCompile Include="imgui\backends\imgui_impl_win32.cpp" />
+    <ClCompile Include="imgui\imgui.cpp" />
+    <ClCompile Include="imgui\imgui_demo.cpp" />
+    <ClCompile Include="imgui\imgui_draw.cpp" />
+    <ClCompile Include="imgui\imgui_tables.cpp" />
+    <ClCompile Include="imgui\imgui_widgets.cpp" />
+    <ClCompile Include="src\Badges.cpp" />
+    <ClCompile Include="src\Commands.cpp" />
+    <ClCompile Include="src\Config.cpp" />
+    <ClCompile Include="src\Debug.cpp" />
+    <ClCompile Include="src\Emotes.cpp" />
+    <ClCompile Include="src\Events.cpp" />
+    <ClCompile Include="src\Main.cpp" />
+    <ClCompile Include="src\OAuth.cpp" />
+    <ClCompile Include="src\SongLibrary.cpp" />
+    <ClCompile Include="src\SongQueue.cpp" />
+    <ClCompile Include="src\TwitchBot.cpp" />
+    <ClCompile Include="src\Window.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="packages.config" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="cpr\accept_encoding.h" />
+    <ClInclude Include="cpr\api.h" />
+    <ClInclude Include="cpr\async.h" />
+    <ClInclude Include="cpr\async_wrapper.h" />
+    <ClInclude Include="cpr\auth.h" />
+    <ClInclude Include="cpr\bearer.h" />
+    <ClInclude Include="cpr\body.h" />
+    <ClInclude Include="cpr\body_view.h" />
+    <ClInclude Include="cpr\buffer.h" />
+    <ClInclude Include="cpr\callback.h" />
+    <ClInclude Include="cpr\cert_info.h" />
+    <ClInclude Include="cpr\connection_pool.h" />
+    <ClInclude Include="cpr\connect_timeout.h" />
+    <ClInclude Include="cpr\cookies.h" />
+    <ClInclude Include="cpr\cpr.h" />
+    <ClInclude Include="cpr\cprtypes.h" />
+    <ClInclude Include="cpr\curlholder.h" />
+    <ClInclude Include="cpr\curlmultiholder.h" />
+    <ClInclude Include="cpr\curl_container.h" />
+    <ClInclude Include="cpr\error.h" />
+    <ClInclude Include="cpr\file.h" />
+    <ClInclude Include="cpr\filesystem.h" />
+    <ClInclude Include="cpr\http_version.h" />
+    <ClInclude Include="cpr\interceptor.h" />
+    <ClInclude Include="cpr\interface.h" />
+    <ClInclude Include="cpr\limit_rate.h" />
+    <ClInclude Include="cpr\local_port.h" />
+    <ClInclude Include="cpr\local_port_range.h" />
+    <ClInclude Include="cpr\low_speed.h" />
+    <ClInclude Include="cpr\multipart.h" />
+    <ClInclude Include="cpr\multiperform.h" />
+    <ClInclude Include="cpr\parameters.h" />
+    <ClInclude Include="cpr\payload.h" />
+    <ClInclude Include="cpr\proxies.h" />
+    <ClInclude Include="cpr\proxyauth.h" />
+    <ClInclude Include="cpr\range.h" />
+    <ClInclude Include="cpr\redirect.h" />
+    <ClInclude Include="cpr\reserve_size.h" />
+    <ClInclude Include="cpr\resolve.h" />
+    <ClInclude Include="cpr\response.h" />
+    <ClInclude Include="cpr\secure_string.h" />
+    <ClInclude Include="cpr\session.h" />
+    <ClInclude Include="cpr\singleton.h" />
+    <ClInclude Include="cpr\sse.h" />
+    <ClInclude Include="cpr\ssl_ctx.h" />
+    <ClInclude Include="cpr\ssl_options.h" />
+    <ClInclude Include="cpr\status_codes.h" />
+    <ClInclude Include="cpr\threadpool.h" />
+    <ClInclude Include="cpr\timeout.h" />
+    <ClInclude Include="cpr\unix_socket.h" />
+    <ClInclude Include="cpr\user_agent.h" />
+    <ClInclude Include="cpr\util.h" />
+    <ClInclude Include="cpr\verbose.h" />
+    <ClInclude Include="imgui\backends\imgui_impl_dx11.h" />
+    <ClInclude Include="imgui\backends\imgui_impl_win32.h" />
+    <ClInclude Include="imgui\imconfig.h" />
+    <ClInclude Include="imgui\imgui.h" />
+    <ClInclude Include="imgui\imgui_internal.h" />
+    <ClInclude Include="imgui\imstb_rectpack.h" />
+    <ClInclude Include="imgui\imstb_textedit.h" />
+    <ClInclude Include="imgui\imstb_truetype.h" />
+    <ClInclude Include="json.hpp" />
+    <ClInclude Include="resource.h" />
+    <ClInclude Include="src\Badges.hpp" />
+    <ClInclude Include="src\Commands.hpp" />
+    <ClInclude Include="src\Config.hpp" />
+    <ClInclude Include="src\Debug.hpp" />
+    <ClInclude Include="src\Emotes.hpp" />
+    <ClInclude Include="src\Events.hpp" />
+    <ClInclude Include="src\json.hpp" />
+    <ClInclude Include="src\OAuth.hpp" />
+    <ClInclude Include="src\Queue.hpp" />
+    <ClInclude Include="src\SongLibrary.hpp" />
+    <ClInclude Include="src\SongQueue.hpp" />
+    <ClInclude Include="src\TwitchBot.hpp" />
+    <ClInclude Include="src\Window.hpp" />
+    <ClInclude Include="stb_image.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ResourceCompile Include="hababot2.rc" />
+  </ItemGroup>
+  <ItemGroup>
+    <Image Include="C:\Users\Hababa2\Downloads\hababa2GigaChad.ico" />
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <ImportGroup Label="ExtensionTargets">
+    <Import Project="packages\boost.1.87.0\build\boost.targets" Condition="Exists('packages\boost.1.87.0\build\boost.targets')" />
+    <Import Project="packages\rmt_zlib.1.2.8.7\build\native\rmt_zlib.targets" Condition="Exists('packages\rmt_zlib.1.2.8.7\build\native\rmt_zlib.targets')" />
+    <Import Project="packages\openssl.vcpkg.3.5.2\build\native\openssl.vcpkg.targets" Condition="Exists('packages\openssl.vcpkg.3.5.2\build\native\openssl.vcpkg.targets')" />
+    <Import Project="packages\libcpr.1.14.2\build\native\libcpr.targets" Condition="Exists('packages\libcpr.1.14.2\build\native\libcpr.targets')" />
+  </ImportGroup>
+  <Target Name="EnsureNuGetPackageBuildImports" BeforeTargets="PrepareForBuild">
+    <PropertyGroup>
+      <ErrorText>This project references NuGet package(s) that are missing on this computer. Use NuGet Package Restore to download them.  For more information, see http://go.microsoft.com/fwlink/?LinkID=322105. The missing file is {0}.</ErrorText>
+    </PropertyGroup>
+    <Error Condition="!Exists('packages\boost.1.87.0\build\boost.targets')" Text="$([System.String]::Format('$(ErrorText)', 'packages\boost.1.87.0\build\boost.targets'))" />
+    <Error Condition="!Exists('packages\rmt_zlib.1.2.8.7\build\native\rmt_zlib.props')" Text="$([System.String]::Format('$(ErrorText)', 'packages\rmt_zlib.1.2.8.7\build\native\rmt_zlib.props'))" />
+    <Error Condition="!Exists('packages\rmt_zlib.1.2.8.7\build\native\rmt_zlib.targets')" Text="$([System.String]::Format('$(ErrorText)', 'packages\rmt_zlib.1.2.8.7\build\native\rmt_zlib.targets'))" />
+    <Error Condition="!Exists('packages\openssl.vcpkg.3.5.2\build\native\openssl.vcpkg.targets')" Text="$([System.String]::Format('$(ErrorText)', 'packages\openssl.vcpkg.3.5.2\build\native\openssl.vcpkg.targets'))" />
+    <Error Condition="!Exists('packages\libcpr.1.14.2\build\native\libcpr.props')" Text="$([System.String]::Format('$(ErrorText)', 'packages\libcpr.1.14.2\build\native\libcpr.props'))" />
+    <Error Condition="!Exists('packages\libcpr.1.14.2\build\native\libcpr.targets')" Text="$([System.String]::Format('$(ErrorText)', 'packages\libcpr.1.14.2\build\native\libcpr.targets'))" />
+  </Target>
+</Project>

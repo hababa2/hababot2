@@ -18,6 +18,7 @@ struct ScannedSong
 	std::string artist;
 	std::string name;
 	std::string charter;
+	std::filesystem::path folder;
 };
 
 class SongLibrary
@@ -27,12 +28,13 @@ public:
 
 	static void LoadCache(const fs::path& cachePath = "songs.json");
 	static void ScanAsync(const fs::path& cachePath = "songs.json");
+	static std::filesystem::path FindSongFolder(std::string_view currentSongRaw);
 	static std::string GetPayload();
-
 
 private:
 	static void RebuildPayloadLocked();
 	static std::string StripCloneHeroTags(std::string_view input);
+	static std::string NormalizeAlphaNum(std::string_view input);
 
 	static json songs;
 	static std::mutex mtx;

@@ -29,6 +29,9 @@ public:
 	static std::string OpenFileBrowser();
 	static std::string OpenFolderBrowser();
 
+	static ID3D11Device* GetDevice();
+	static ID3D11DeviceContext* GetContext();
+
 private:
 	static void CreateDeviceD3D();
 	static void WindowThreadLoop();

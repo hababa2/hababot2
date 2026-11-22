@@ -1,9 +1,13 @@
 #include "SongQueue.hpp"
 
 #include "TwitchBot.hpp"
+#include "SongLibrary.hpp"
+#include "Window.hpp"
 #include "Config.hpp"
 
 #include "imgui.h"
+
+#include "stb_image.h"
 
 #include "json.hpp"
 
@@ -12,6 +16,8 @@
 #include <cstdlib>
 #include <filesystem>
 
+#include <d3d11.h>
+
 std::mutex SongQueue::mtx;
 
 std::deque<SongRequest> SongQueue::songQueue;
@@ -19,6 +25,9 @@ std::string SongQueue::currentSongDisplay;
 std::string SongQueue::currentSongRequester;
 std::filesystem::file_time_type SongQueue::lastSongWriteTime{};
 std::chrono::steady_clock::time_point SongQueue::lastSongPollTime{};
+
+ID3D11ShaderResourceView* SongQueue::currentAlbumArt;
+ID3D11ShaderResourceView* SongQueue::defaultAlbumArt;
 
 bool SongQueue::requestsEnabled = true;
 bool SongQueue::queueVisible = true;
@@ -36,6 +45,25 @@ void SongQueue::RenderSongQueue()
 	ImGui::PopStyleColor();
 	ImGui::PopFont();
 
+	constexpr ImVec2 artSize(64.0f, 64.0f);
+	ID3D11ShaderResourceView* activeArt = currentAlbumArt ? currentAlbumArt : defaultAlbumArt;
+
+	if (activeArt)
+	{
+		ImGui::Image((void*)activeArt, artSize);
+	}
+	else
+	{
+		ImVec2 p = ImGui::GetCursorScreenPos();
+		ImDrawList* dl = ImGui::GetWindowDrawList();
+		dl->AddRectFilled(p, ImVec2(p.x + artSize.x, p.y + artSize.y), IM_COL32(45, 45, 52, 255), 6.0f);
+		dl->AddRect(p, ImVec2(p.x + artSize.x, p.y + artSize.y), IM_COL32(90, 90, 105, 255), 6.0f);
+		ImGui::Dummy(artSize);
+	}
+
+	ImGui::SameLine(0.0f, 10.0f);
+
+	ImGui::BeginGroup();
 	if (!currentSongDisplay.empty())
 	{
 		ImGui::PushFont(TwitchBot::font);
@@ -57,11 +85,14 @@ void SongQueue::RenderSongQueue()
 		ImGui::TextDisabled("In Menus / Idle");
 		ImGui::PopFont();
 	}
+	ImGui::EndGroup();
 
 	ImGui::Spacing();
 	ImGui::Separator();
 	ImGui::Spacing();
 
+	float footerHeight = 36.0f;
+	ImGui::BeginChild("QueueListScroll", ImVec2(0, -footerHeight), false);
 	if (queueVisible)
 	{
 		ImGui::PushFont(TwitchBot::boldFont);
@@ -101,36 +132,9 @@ void SongQueue::RenderSongQueue()
 		ImGui::PopFont();
 	}
 
-	float bottomHeight = 147.0f;
-	float availY = ImGui::GetContentRegionAvail().y;
-	if (availY > bottomHeight)
-	{
-		ImGui::SetCursorPosY(ImGui::GetCursorPosY() + availY - bottomHeight);
-	}
+	ImGui::EndChild();
 
-	ImGui::BeginChild("Queue Controls", ImVec2(0, bottomHeight), true, ImGuiWindowFlags_NoScrollbar);
 	ImGui::PushFont(TwitchBot::font);
-
-	if (ImGui::Checkbox("Enable Requests", &requestsEnabled))
-	{
-		nlohmann::json statePayload = {
-			{ "action", "queue_state" },
-			{ "requests_enabled", requestsEnabled },
-			{ "queue_visible", queueVisible },
-		};
-		TwitchBot::SendToRelay(statePayload.dump());
-	}
-
-	if (ImGui::Checkbox("Show Queue", &queueVisible))
-	{
-		nlohmann::json statePayload = {
-			{ "action", "queue_state" },
-			{ "requests_enabled", requestsEnabled },
-			{ "queue_visible", queueVisible },
-		};
-		TwitchBot::SendToRelay(statePayload.dump());
-	}
-
 	ImGui::PushStyleColor(ImGuiCol_Button, IM_COL32(200, 50, 50, 255));
 	if (ImGui::Button("Clear Queue", ImVec2(-1, 30)))
 	{
@@ -142,17 +146,10 @@ void SongQueue::RenderSongQueue()
 		};
 		TwitchBot::SendToRelay(clearPayload.dump());
 	}
-	ImGui::PopStyleColor();
 
-	ImGui::PushStyleColor(ImGuiCol_Button, IM_COL32(201, 160, 220, 255));
-	if (ImGui::Button("Customize Commands", ImVec2(-1, 30)))
-	{
-		TwitchBot::showCommandManager = !TwitchBot::showCommandManager;
-	}
 	ImGui::PopStyleColor();
-
 	ImGui::PopFont();
-	ImGui::EndChild();
+
 	ImGui::EndChild();
 }
 
@@ -196,6 +193,7 @@ void SongQueue::UpdateCurrentSong()
 	{
 		currentSongDisplay.clear();
 		currentSongRequester.clear();
+		ClearAlbumArt();
 		return;
 	}
 
@@ -203,6 +201,7 @@ void SongQueue::UpdateCurrentSong()
 	{
 		currentSongDisplay = formattedDisplay;
 		currentSongRequester.clear();
+		UpdateAlbumArt(rawContents);
 
 		for (auto it = songQueue.begin(); it != songQueue.end(); ++it)
 		{
@@ -358,6 +357,96 @@ bool SongQueue::DoesSongMatchRequest(std::string_view currentSongRaw, std::strin
 	return matchedCount >= requiredMatches;
 }
 
+ID3D11ShaderResourceView* SongQueue::CreateSrvFromFile(ID3D11Device* device, ID3D11DeviceContext* context, const std::filesystem::path& filepath)
+{
+	if (!device || !context) { return nullptr; }
+
+	int width = 0, height = 0, channels = 0;
+	unsigned char* pixels = stbi_load(filepath.string().c_str(), &width, &height, &channels, 4);
+	if (!pixels) { return nullptr; }
+
+	D3D11_TEXTURE2D_DESC desc{};
+	desc.Width = static_cast<UINT>(width);
+	desc.Height = static_cast<UINT>(height);
+	desc.MipLevels = 0;
+	desc.ArraySize = 1;
+	desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+	desc.SampleDesc.Count = 1;
+	desc.Usage = D3D11_USAGE_DEFAULT;
+	desc.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET;
+	desc.MiscFlags = D3D11_RESOURCE_MISC_GENERATE_MIPS;
+
+	ID3D11Texture2D* tex = nullptr;
+	ID3D11ShaderResourceView* srv = nullptr;
+
+	if (SUCCEEDED(device->CreateTexture2D(&desc, nullptr, &tex)) && tex)
+	{
+		context->UpdateSubresource(tex, 0, nullptr, pixels, static_cast<UINT>(width * 4), 0);
+
+		D3D11_SHADER_RESOURCE_VIEW_DESC srvDesc{};
+		srvDesc.Format = desc.Format;
+		srvDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
+		srvDesc.Texture2D.MostDetailedMip = 0;
+		srvDesc.Texture2D.MipLevels = static_cast<UINT>(-1);
+
+		if (SUCCEEDED(device->CreateShaderResourceView(tex, &srvDesc, &srv)) && srv)
+		{
+			context->GenerateMips(srv);
+		}
+		tex->Release();
+	}
+
+	stbi_image_free(pixels);
+	return srv;
+}
+
+void SongQueue::LoadDefaultAlbumArt(const std::filesystem::path& filepath)
+{
+	if (defaultAlbumArt)
+	{
+		defaultAlbumArt->Release();
+		defaultAlbumArt = nullptr;
+	}
+
+	std::error_code ec;
+	if (std::filesystem::exists(filepath, ec))
+	{
+		defaultAlbumArt = CreateSrvFromFile(Window::GetDevice(), Window::GetContext(), filepath);
+	}
+}
+
+void SongQueue::ClearAlbumArt()
+{
+	if (currentAlbumArt)
+	{
+		currentAlbumArt->Release();
+		currentAlbumArt = nullptr;
+	}
+}
+
+void SongQueue::UpdateAlbumArt(std::string_view currentSongRaw)
+{
+	ClearAlbumArt();
+
+	std::filesystem::path folder = SongLibrary::FindSongFolder(currentSongRaw);
+	if (folder.empty()) { return; }
+
+	static constexpr std::array<const char*, 3> candidates = {
+		"album.png", "album.jpg", "album.jpeg"
+	};
+
+	std::error_code ec;
+	for (const char* filename : candidates)
+	{
+		std::filesystem::path artPath = folder / filename;
+		if (std::filesystem::exists(artPath, ec))
+		{
+			currentAlbumArt = CreateSrvFromFile(Window::GetDevice(), Window::GetContext(), artPath);
+			if (currentAlbumArt) { break; }
+		}
+	}
+}
+
 std::string SongQueue::SerializeQueue()
 {
 	nlohmann::json queueJson = nlohmann::json::array();
@@ -373,6 +462,16 @@ std::string SongQueue::SerializeQueue()
 	}
 
 	return queueJson.dump();
+}
+
+void SongQueue::BroadcastState()
+{
+	nlohmann::json statePayload = {
+		{ "action", "queue_state" },
+		{ "requests_enabled", requestsEnabled },
+		{ "queue_visible", queueVisible }
+	};
+	TwitchBot::SendToRelay(statePayload.dump());
 }
 
 void SongQueue::AddToQueue(const SongRequest& request)

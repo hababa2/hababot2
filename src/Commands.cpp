@@ -94,15 +94,6 @@ void Commands::RunCommand(ChatMessage& msg)
 
 void Commands::RenderCommandManager()
 {
-	if (!TwitchBot::showCommandManager) { return; }
-
-	ImGui::SetNextWindowSize(ImVec2(620, 440), ImGuiCond_FirstUseEver);
-	if (!ImGui::Begin("Customize Commands", &TwitchBot::showCommandManager))
-	{
-		ImGui::End();
-		return;
-	}
-
 	static char cmdBuf[64] = "";
 	static char respBuf[512] = "";
 	static std::string editingKey;
@@ -178,7 +169,6 @@ void Commands::RenderCommandManager()
 	ImGui::Spacing();
 
 	std::string pendingDelete;
-
 	if (ImGui::BeginTable("CommandsTable", 3,
 		ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_Resizable | ImGuiTableFlags_ScrollY))
 	{
@@ -228,8 +218,6 @@ void Commands::RenderCommandManager()
 		}
 		RemoveCustomCommand(pendingDelete);
 	}
-
-	ImGui::End();
 }
 
 std::string Commands::ExpandCommandTemplate(const std::string& tmpl, const ChatMessage& msg, const std::vector<std::string>& args)

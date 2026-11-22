@@ -187,6 +187,7 @@ private:
 	static asio::awaitable<void> RelayWriteLoop();
 	static void SendToRelay(const std::string& msg);
 
+	static void RenderSettingsWindow();
 	static void DrawUsername(const ChatMessage& msg);
 	static void DrawMessage(const ChatMessage& msg);
 
@@ -205,6 +206,7 @@ private:
 	static awaitable<void> WriteLoop();
 
 	static bool isRunning;
+	static bool showSettings;
 	static bool showOnboarding;
 	static bool showCommandManager;
 	static bool relayWriteInProgress;

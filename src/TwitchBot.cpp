@@ -22,6 +22,7 @@
 #include <fstream>
 
 bool TwitchBot::isRunning = true;
+bool TwitchBot::showSettings = false;
 bool TwitchBot::showOnboarding = false;
 bool TwitchBot::showCommandManager = false;
 bool TwitchBot::relayWriteInProgress = false;
@@ -57,6 +58,7 @@ void TwitchBot::Initialize(asio::io_context& ioc_, asio::ssl::context& ctx_)
 	ws = new websocket::stream<beast::ssl_stream<asio::ip::tcp::socket>>(ioc_, ctx_);
 
 	showOnboarding = !Config::Load("config.json");
+	SongQueue::LoadDefaultAlbumArt("default_album.png");
 	SongLibrary::Initialize();
 	LoadEarlyBirdStats();
 
@@ -493,7 +495,8 @@ void TwitchBot::Render()
 	ImGui::SetNextWindowPos(ImVec2(0, 0));
 	ImGui::SetNextWindowSize(ImGui::GetIO().DisplaySize);
 
-	ImGuiWindowFlags windowFlags = ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoScrollbar;
+	ImGuiWindowFlags windowFlags = ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse | 
+		ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_MenuBar | ImGuiWindowFlags_NoBringToFrontOnFocus;
 
 	ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8.0f, 8.0f));
 	ImGui::PushFont(boldFont);
@@ -503,6 +506,17 @@ void TwitchBot::Render()
 	ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.1f, 0.1f, 0.1f, 0.75f));
 
 	ImGui::Begin("Hababot2", nullptr, windowFlags);
+
+	if (ImGui::BeginMenuBar())
+	{
+		ImGui::PushFont(font);
+		if (ImGui::MenuItem("Settings"))
+		{
+			showSettings = !showSettings;
+		}
+		ImGui::PopFont();
+		ImGui::EndMenuBar();
+	}
 
 	if (showOnboarding)
 	{
@@ -514,9 +528,10 @@ void TwitchBot::Render()
 	ImGui::PopFont();
 	ImGui::PopStyleVar();
 
+	RenderSettingsWindow();
+
 	ImGui::PushFont(TwitchBot::font);
 	Config::OnboardingPopup();
-	Commands::RenderCommandManager();
 	Debug::RenderDebugTools();
 	ImGui::PopFont();
 
@@ -627,6 +642,91 @@ void TwitchBot::Render()
 
 	ImGui::End();
 	ImGui::Render();
+}
+
+void TwitchBot::RenderSettingsWindow()
+{
+	if (showSettings && !ImGui::IsPopupOpen("Settings"))
+	{
+		ImGui::OpenPopup("Settings");
+	}
+
+	ImVec2 center = ImGui::GetMainViewport()->GetCenter();
+	ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+	ImGui::SetNextWindowSize(ImVec2(660, 480), ImGuiCond_FirstUseEver);
+	ImGui::PushFont(font);
+
+	if (ImGui::BeginPopupModal("Settings", &showSettings, ImGuiWindowFlags_AlwaysAutoResize))
+	{
+		if (ImGui::BeginTabBar("SettingsTabs"))
+		{
+			if (ImGui::BeginTabItem("Queue & General"))
+			{
+				ImGui::Spacing();
+				ImGui::PushFont(boldFont);
+				ImGui::TextUnformatted("Song Queue");
+				ImGui::PopFont();
+				ImGui::Separator();
+				ImGui::Spacing();
+
+				if (ImGui::Checkbox("Enable Requests", &SongQueue::requestsEnabled))
+				{
+					SongQueue::BroadcastState();
+				}
+
+				if (ImGui::Checkbox("Show Queue", &SongQueue::queueVisible))
+				{
+					SongQueue::BroadcastState();
+				}
+
+				ImGui::Spacing();
+
+				ImGui::EndTabItem();
+			}
+
+			if (ImGui::BeginTabItem("Song Folders"))
+			{
+				ImGui::Spacing();
+				Config::RenderPathEditor();
+
+				ImGui::Spacing();
+				ImGui::Separator();
+				ImGui::Spacing();
+
+				if (ImGui::Button("Save & Rescan Songs", ImVec2(180.0f, 32.0f)))
+				{
+					auto& folders = Config::data.songFolders;
+					folders.erase(std::remove_if(folders.begin(), folders.end(),
+						[](const std::string& s) { return s.empty(); }), folders.end());
+
+					Config::Save("config.json");
+					SongLibrary::Initialize();
+				}
+
+				ImGui::SameLine();
+
+				if (ImGui::Button("Revert Changes", ImVec2(130.0f, 32.0f)))
+				{
+					Config::Load("config.json");
+				}
+
+				ImGui::EndTabItem();
+			}
+
+			if (ImGui::BeginTabItem("Customize Commands"))
+			{
+				ImGui::Spacing();
+				Commands::RenderCommandManager();
+				ImGui::EndTabItem();
+			}
+
+			ImGui::EndTabBar();
+		}
+
+		ImGui::EndPopup();
+	}
+
+	ImGui::PopFont();
 }
 
 void TwitchBot::DrawUsername(const ChatMessage& msg)

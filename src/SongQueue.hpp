@@ -16,6 +16,10 @@ namespace http = beast::http;
 using asio::awaitable;
 using asio::use_awaitable;
 
+struct ID3D11Device;
+struct ID3D11DeviceContext;
+struct ID3D11ShaderResourceView;
+
 struct SongRequest
 {
 	std::string request;
@@ -30,7 +34,13 @@ public:
 	static void UpdateCurrentSong();
 	static bool DoesSongMatchRequest(std::string_view currentSongRaw, std::string_view requestQuery);
 
+	static ID3D11ShaderResourceView* CreateSrvFromFile(ID3D11Device* device, ID3D11DeviceContext* context, const std::filesystem::path& filepath);
+	static void LoadDefaultAlbumArt(const std::filesystem::path& filepath);
+	static void UpdateAlbumArt(std::string_view currentSongRaw);
+	static void ClearAlbumArt();
+
 	static std::string SerializeQueue();
+	static void BroadcastState();
 
 	static void AddToQueue(const SongRequest& request);
 
@@ -45,6 +55,9 @@ private:
 	static std::string currentSongRequester;
 	static std::filesystem::file_time_type lastSongWriteTime;
 	static std::chrono::steady_clock::time_point lastSongPollTime;
+
+	static ID3D11ShaderResourceView* currentAlbumArt;
+	static ID3D11ShaderResourceView* defaultAlbumArt;
 
 	static bool requestsEnabled;
 	static bool queueVisible;

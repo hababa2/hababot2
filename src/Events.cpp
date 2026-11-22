@@ -424,15 +424,6 @@ void Events::ProcessSubscription(const std::string& subType, JsonType& event)
 		subMsg.segments.push_back(TextSegment{ subMsg.text });
 		subMsg.isAlert = true;
 	}
-	else if (subType == "channel.subscribe")
-	{
-		bool isGift = event.value("is_gift", false);
-		if (isGift) { return; }
-
-		subMsg.text = subMsg.displayName + " just subscribed! (" + tierText + ")";
-		subMsg.segments.push_back(TextSegment{ subMsg.text });
-		subMsg.isAlert = true;
-	}
 
 	TwitchBot::SendAlert(subMsg);
 }

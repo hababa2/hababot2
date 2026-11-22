@@ -102,6 +102,68 @@ void Config::SetDefaults()
 	data.songFolders.push_back(defaultSongsPath);
 }
 
+void Config::RenderPathEditor()
+{
+	char songPathBuf[512];
+	strncpy_s(songPathBuf, data.currentSongPath.c_str(), sizeof(songPathBuf) - 1);
+
+	ImGui::TextUnformatted("Current Song File (currentsong.txt)");
+	ImGui::SetNextItemWidth(-95.0f);
+	if (ImGui::InputText("##currentSongPath", songPathBuf, sizeof(songPathBuf)))
+	{
+		data.currentSongPath = songPathBuf;
+	}
+	ImGui::SameLine();
+	if (ImGui::Button("Browse...##songfile", ImVec2(85.0f, 0)))
+	{
+		std::string picked = Window::OpenFileBrowser();
+		if (!picked.empty()) { data.currentSongPath = picked; }
+	}
+
+	ImGui::Spacing();
+	ImGui::TextUnformatted("Song Folders");
+
+	int removeIndex = -1;
+	for (int i = 0; i < static_cast<int>(data.songFolders.size()); ++i)
+	{
+		ImGui::PushID(i);
+		char folderBuf[512];
+		strncpy_s(folderBuf, data.songFolders[i].c_str(), sizeof(folderBuf) - 1);
+
+		ImGui::SetNextItemWidth(-175.0f);
+		if (ImGui::InputText("##folder", folderBuf, sizeof(folderBuf)))
+		{
+			data.songFolders[i] = folderBuf;
+		}
+		ImGui::SameLine();
+		if (ImGui::Button("Browse...", ImVec2(85.0f, 0)))
+		{
+			std::string picked = Window::OpenFolderBrowser();
+			if (!picked.empty()) { data.songFolders[i] = picked; }
+		}
+		ImGui::SameLine();
+		if (ImGui::Button("Remove", ImVec2(75.0f, 0)))
+		{
+			removeIndex = i;
+		}
+		ImGui::PopID();
+	}
+
+	if (removeIndex != -1)
+	{
+		data.songFolders.erase(data.songFolders.begin() + removeIndex);
+	}
+
+	if (ImGui::Button("+ Add Song Folder"))
+	{
+		std::string picked = Window::OpenFolderBrowser();
+		if (!picked.empty())
+		{
+			data.songFolders.push_back(picked);
+		}
+	}
+}
+
 void Config::OnboardingPopup()
 {
 	ImVec2 center = ImGui::GetMainViewport()->GetCenter();
@@ -114,70 +176,7 @@ void Config::OnboardingPopup()
 		ImGui::Separator();
 		ImGui::Spacing();
 
-		char songPathBuf[512];
-		strncpy_s(songPathBuf, Config::data.currentSongPath.c_str(), sizeof(songPathBuf) - 1);
-
-		ImGui::Text("Current Song File (currentsong.txt)");
-		ImGui::SetNextItemWidth(380.0f);
-		if (ImGui::InputText("##currentSongPath", songPathBuf, sizeof(songPathBuf)))
-		{
-			Config::data.currentSongPath = songPathBuf;
-		}
-		ImGui::SameLine();
-		if (ImGui::Button("Browse..."))
-		{
-			std::string picked = Window::OpenFileBrowser();
-			if (!picked.empty())
-			{
-				Config::data.currentSongPath = picked;
-			}
-		}
-
-		ImGui::Spacing();
-
-		ImGui::Text("Song Folders");
-		int removeIndex = -1;
-		for (int i = 0; i < static_cast<int>(Config::data.songFolders.size()); ++i)
-		{
-			ImGui::PushID(i);
-			char folderBuf[512];
-			strncpy_s(folderBuf, Config::data.songFolders[i].c_str(), sizeof(folderBuf) - 1);
-
-			ImGui::SetNextItemWidth(320.0f);
-			if (ImGui::InputText("##folder", folderBuf, sizeof(folderBuf)))
-			{
-				Config::data.songFolders[i] = folderBuf;
-			}
-			ImGui::SameLine();
-			if (ImGui::Button("Browse..."))
-			{
-				std::string picked = Window::OpenFolderBrowser();
-				if (!picked.empty())
-				{
-					Config::data.songFolders[i] = picked;
-				}
-			}
-			ImGui::SameLine();
-			if (ImGui::Button("Remove"))
-			{
-				removeIndex = i;
-			}
-			ImGui::PopID();
-		}
-
-		if (removeIndex != -1)
-		{
-			Config::data.songFolders.erase(Config::data.songFolders.begin() + removeIndex);
-		}
-
-		if (ImGui::Button("+ Add Song Folder"))
-		{
-			std::string picked = Window::OpenFolderBrowser();
-			if (!picked.empty())
-			{
-				Config::data.songFolders.push_back(picked);
-			}
-		}
+		RenderPathEditor();
 
 		ImGui::Spacing();
 		ImGui::Separator();
@@ -190,8 +189,18 @@ void Config::OnboardingPopup()
 				[](const std::string& s) { return s.empty(); }), folders.end());
 
 			Config::Save("config.json");
-			SongLibrary::ScanAsync();
+			SongLibrary::Initialize();
 			ImGui::CloseCurrentPopup();
+		}
+
+		if (std::filesystem::exists("config.json"))
+		{
+			ImGui::SameLine();
+			if (ImGui::Button("Cancel", ImVec2(100, 0)))
+			{
+				Config::Load("config.json");
+				ImGui::CloseCurrentPopup();
+			}
 		}
 
 		ImGui::EndPopup();

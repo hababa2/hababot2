@@ -585,7 +585,7 @@ bool    ImGui_ImplDX11_CreateDeviceObjects()
         desc.MipLODBias = 0.f;
         desc.ComparisonFunc = D3D11_COMPARISON_ALWAYS;
         desc.MinLOD = 0.f;
-        desc.MaxLOD = 0.f;
+        desc.MaxLOD = D3D11_FLOAT32_MAX;
         bd->pd3dDevice->CreateSamplerState(&desc, &bd->pTexSamplerLinear);
         desc.Filter = D3D11_FILTER_MIN_MAG_MIP_POINT;
         bd->pd3dDevice->CreateSamplerState(&desc, &bd->pTexSamplerNearest);

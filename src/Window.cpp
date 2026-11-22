@@ -391,6 +391,16 @@ std::string Window::OpenFolderBrowser()
 	return result;
 }
 
+ID3D11Device* Window::GetDevice()
+{
+	return pd3dDevice;
+}
+
+ID3D11DeviceContext* Window::GetContext()
+{
+	return pd3dDeviceContext;
+}
+
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
 LRESULT __stdcall Window::WindowsMessageProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)

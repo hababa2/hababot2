@@ -39,6 +39,43 @@ void SongLibrary::LoadCache(const fs::path& cachePath)
     RebuildPayloadLocked();
 }
 
+std::filesystem::path SongLibrary::FindSongFolder(std::string_view currentSongRaw)
+{
+	std::string normRaw = NormalizeAlphaNum(currentSongRaw);
+	if (normRaw.empty()) { return {}; }
+
+	std::lock_guard<std::mutex> lock(mtx);
+	std::filesystem::path bestMatch;
+	size_t bestScore = 0;
+
+	for (const ScannedSong& song : songLibrary)
+	{
+		std::string normName = NormalizeAlphaNum(song.name);
+		if (normName.empty() || normRaw.find(normName) == std::string::npos) { continue; }
+
+		size_t score = normName.size();
+		std::string normArtist = NormalizeAlphaNum(song.artist);
+		if (!normArtist.empty() && normRaw.find(normArtist) != std::string::npos)
+		{
+			score += normArtist.size() + 100;
+		}
+
+		std::string normCharter = NormalizeAlphaNum(song.charter);
+		if (!normCharter.empty() && normRaw.find(normCharter) != std::string::npos)
+		{
+			score += normCharter.size() + 50;
+		}
+
+		if (score > bestScore)
+		{
+			bestScore = score;
+			bestMatch = song.folder;
+		}
+	}
+
+	return bestMatch;
+}
+
 std::string SongLibrary::GetPayload()
 {
     std::lock_guard<std::mutex> lock(mtx);
@@ -62,6 +99,20 @@ std::string SongLibrary::StripCloneHeroTags(std::string_view input)
     if (first == std::string::npos) { return ""; }
     size_t last = out.find_last_not_of(" \t\r\n");
     return out.substr(first, (last - first + 1));
+}
+
+std::string SongLibrary::NormalizeAlphaNum(std::string_view input)
+{
+	std::string out;
+	out.reserve(input.size());
+	for (unsigned char c : input)
+	{
+		if (c < 128 && std::isalnum(c))
+		{
+			out.push_back(static_cast<char>(std::tolower(c)));
+		}
+	}
+	return out;
 }
 
 void SongLibrary::RebuildPayloadLocked()
@@ -160,6 +211,7 @@ void SongLibrary::ScanAsync(const fs::path& cachePath)
 
 							if (!song.name.empty() && !song.artist.empty())
 							{
+								song.folder = it->path().parent_path();
 								scanned.push_back(std::move(song));
 							}
 						}
@@ -194,12 +246,13 @@ void SongLibrary::ScanAsync(const fs::path& cachePath)
 		}), scanned.end());
 
 		nlohmann::json jArray = nlohmann::json::array();
-		for (const auto& s : scanned)
+		for (const ScannedSong& s : scanned)
 		{
 			jArray.push_back({
 				{ "artist", s.artist },
 				{ "name", s.name },
-				{ "charter", s.charter }
+				{ "charter", s.charter },
+				{ "path", s.folder }
 				});
 		}
 
@@ -210,6 +263,7 @@ void SongLibrary::ScanAsync(const fs::path& cachePath)
 			std::lock_guard<std::mutex> lock(mtx);
 			changed = (jArray != songs);
 			songs = std::move(jArray);
+			songLibrary = std::move(scanned);
 			isScanning.store(false);
 			RebuildPayloadLocked();
 			newPayload = cachedPayload;

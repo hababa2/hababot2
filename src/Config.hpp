@@ -19,5 +19,6 @@ public:
 	static void Save(const std::string& filepath = "config.json");
 	static void SetDefaults();
 
+	static void RenderPathEditor();
 	static void OnboardingPopup();
 };

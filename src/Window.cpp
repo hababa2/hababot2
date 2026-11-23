@@ -101,7 +101,7 @@ bool Window::Initialize()
 	if (!windowCreationSuccess)
 	{
 		running = false;
-		if (windowThread.joinable()) windowThread.join();
+		if (windowThread.joinable()) { windowThread.join(); }
 		return false;
 	}
 
@@ -114,15 +114,8 @@ void Window::Shutdown()
 	ImGui_ImplWin32_Shutdown();
 	ImGui::DestroyContext();
 
-	if (hWnd && running)
-	{
-		PostMessageW(hWnd, WM_CLOSE, 0, 0);
-	}
-
-	if (windowThread.joinable())
-	{
-		windowThread.join();
-	}
+	if (hWnd && running) { PostMessageW(hWnd, WM_CLOSE, 0, 0); }
+	if (windowThread.joinable()) { windowThread.join(); }
 
 	UnregisterClassW(L"Chat Viewer", instance);
 	hWnd = nullptr;
@@ -497,10 +490,6 @@ LRESULT __stdcall Window::WindowsMessageProc(HWND hWnd, UINT msg, WPARAM wParam,
 	case WM_MOVE: {
 	} return 0;
 	case WM_KEYDOWN: {
-		if (wParam == VK_ESCAPE)
-		{
-			DestroyWindow(hWnd);
-		}
 	} return 0;
 	case WM_NCHITTEST: {
 		POINT pt = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
@@ -523,8 +512,23 @@ LRESULT __stdcall Window::WindowsMessageProc(HWND hWnd, UINT msg, WPARAM wParam,
 
 		POINT clientPt = pt;
 		ScreenToClient(hWnd, &clientPt);
-		if (clientPt.y < dragZoneHeight) { return HTCAPTION; }
-	} break;
+
+		constexpr int titleBarHeight = 32;
+		constexpr int closeButtonWidth = 32;
+		if (clientPt.y >= 0 && clientPt.y < titleBarHeight)
+		{
+			if (pt.x >= rc.right - closeButtonWidth) { return HTCLIENT; }
+
+			if (ImGui::GetCurrentContext() != nullptr)
+			{
+				bool anyPopupOpen = ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel);
+
+				if (anyPopupOpen || ImGui::IsAnyItemHovered() || ImGui::IsAnyItemActive()) { return HTCLIENT; }
+			}
+
+			return HTCAPTION;
+		}
+	} return HTCLIENT;
 	case WM_SETCURSOR: {
 		switch (LOWORD(lParam))
 		{

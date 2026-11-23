@@ -521,7 +521,9 @@ void TwitchBot::Render()
 	ImGui::PushStyleColor(ImGuiCol_TitleBgCollapsed, ImVec4(0.788235294117647f, 0.62745098039f, 0.86274509803f, 1.0f));
 	ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.1f, 0.1f, 0.1f, 0.75f));
 
-	ImGui::Begin("Hababot2", nullptr, windowFlags);
+	ImGui::Begin("Hababot2", &isRunning, windowFlags);
+
+	if (!isRunning || (!showSettings && ImGui::IsKeyPressed(ImGuiKey_Escape))) { Window::Close(); }
 
 	if (ImGui::BeginMenuBar())
 	{
@@ -674,6 +676,16 @@ void TwitchBot::RenderSettingsWindow()
 
 	if (ImGui::BeginPopupModal("Settings", &showSettings, ImGuiWindowFlags_AlwaysAutoResize))
 	{
+		constexpr float minTopY = 32.0f;
+		ImVec2 pos = ImGui::GetWindowPos();
+		if (pos.y < minTopY) { ImGui::SetWindowPos(ImVec2(pos.x, minTopY)); }
+
+		if (ImGui::IsKeyPressed(ImGuiKey_Escape))
+		{
+			showSettings = false;
+			ImGui::CloseCurrentPopup();
+		}
+
 		if (ImGui::BeginTabBar("SettingsTabs"))
 		{
 			if (ImGui::BeginTabItem("Queue & General"))

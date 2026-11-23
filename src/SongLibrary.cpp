@@ -29,11 +29,32 @@ void SongLibrary::LoadCache(const fs::path& cachePath)
 			if (parsed.is_array())
 			{
 				songs = std::move(parsed);
+				songLibrary.clear();
+				songLibrary.reserve(songs.size());
+
+				for (const auto& item : songs)
+				{
+					ScannedSong s;
+					s.artist = item.value("artist", "");
+					s.name = item.value("name", "");
+					s.charter = item.value("charter", "");
+
+					std::string folderUtf8 = item.value("path", "");
+					if (!folderUtf8.empty())
+					{
+						s.folder = std::filesystem::path(
+							reinterpret_cast<const char8_t*>(folderUtf8.data()),
+							reinterpret_cast<const char8_t*>(folderUtf8.data() + folderUtf8.size()));
+					}
+
+					songLibrary.push_back(std::move(s));
+				}
 			}
 		}
 		catch (const std::exception&)
 		{
 			songs = json::array();
+			songLibrary.clear();
 		}
 	}
 	RebuildPayloadLocked();
@@ -117,12 +138,22 @@ std::string SongLibrary::NormalizeAlphaNum(std::string_view input)
 
 void SongLibrary::RebuildPayloadLocked()
 {
+	json webSongs = json::array();
+	for (const auto& s : songs)
+	{
+		webSongs.push_back({
+			{ "artist", s.value("artist", "") },
+			{ "name", s.value("name", "") },
+			{ "charter", s.value("charter", "") }
+			});
+	}
+
 	json msg = {
 		{ "action", "song_list" },
-		{ "data", songs },
+		{ "data", std::move(webSongs) },
 		{ "scanning", isScanning.load() }
 	};
-	cachedPayload = msg.dump();
+	cachedPayload = msg.dump(-1, ' ', false, nlohmann::json::error_handler_t::replace);
 }
 
 void SongLibrary::ScanAsync(const fs::path& cachePath)
@@ -156,7 +187,7 @@ void SongLibrary::ScanAsync(const fs::path& cachePath)
 				if (!std::filesystem::exists(longRootPath, ec))
 				{
 					std::cerr << "Songs directory not found: " << folderPath << std::endl;
-					return;
+					continue;
 				}
 
 				auto options = std::filesystem::directory_options::skip_permission_denied;
@@ -219,12 +250,16 @@ void SongLibrary::ScanAsync(const fs::path& cachePath)
 							}
 						}
 					}
-					else if (it->is_directory() && (it->path().filename() == ".synchotic" || it->path().filename() == ".dm-sync"))
+					else if (it->is_directory(ec) && !ec)
 					{
-						it.disable_recursion_pending();
-						ec.clear();
-						it.increment(ec);
-						continue;
+						std::wstring dirName = it->path().filename().wstring();
+						if (dirName == L".synchotic" || dirName == L".dm-sync")
+						{
+							it.disable_recursion_pending();
+							ec.clear();
+							it.increment(ec);
+							continue;
+						}
 					}
 
 					ec.clear();
@@ -250,11 +285,14 @@ void SongLibrary::ScanAsync(const fs::path& cachePath)
 			nlohmann::json jArray = nlohmann::json::array();
 			for (const ScannedSong& s : scanned)
 			{
+				auto u8 = s.folder.u8string();
+				std::string folderUtf8(reinterpret_cast<const char*>(u8.data()), u8.size());
+
 				jArray.push_back({
 					{ "artist", s.artist },
 					{ "name", s.name },
 					{ "charter", s.charter },
-					{ "path", s.folder }
+					{ "path", std::move(folderUtf8) }
 					});
 			}
 
@@ -291,6 +329,7 @@ void SongLibrary::ScanAsync(const fs::path& cachePath)
 		{
 			std::ofstream log("hababot2_crash.log", std::ios::app);
 			log << "[Crash] " << e.what() << "\n";
+			isScanning.store(false);
 		}
 	}).detach();
 }

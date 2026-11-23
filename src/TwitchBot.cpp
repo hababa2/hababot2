@@ -62,145 +62,80 @@ void TwitchBot::Initialize(asio::io_context& ioc_, asio::ssl::context& ctx_)
 	SongLibrary::Initialize();
 	LoadEarlyBirdStats();
 
-	asio::co_spawn(*ioc, ConnectToRelay(), asio::detached);
-
 	Commands::RegisterCommands();
 }
 
 asio::awaitable<void> TwitchBot::ConnectToRelay()
 {
-	try
+	asio::ssl::context ctx(asio::ssl::context::tlsv12_client);
+	ctx.set_default_verify_paths();
+
+	while (isRunning)
 	{
-		asio::ssl::context ctx(asio::ssl::context::tlsv12_client);
-		ctx.set_default_verify_paths();
-
-		relayWs = new websocket::stream<beast::ssl_stream<asio::ip::tcp::socket>>(*ioc, ctx);
-
-		asio::ip::tcp::resolver resolver(*ioc);
-		auto const results = co_await resolver.async_resolve("songs.hababot2.com", "443", use_awaitable);
-
-		co_await asio::async_connect(beast::get_lowest_layer(*relayWs), results, use_awaitable);
-
-		if (!SSL_set_tlsext_host_name(relayWs->next_layer().native_handle(), "songs.hababot2.com"))
+		try
 		{
-			throw std::runtime_error("Failed to set SNI Hostname for relay");
-		}
+			relayConnected = false;
 
-		relayWs->set_option(boost::beast::websocket::stream_base::decorator(
-			[](boost::beast::websocket::request_type& req)
-		{
-			req.set(boost::beast::http::field::user_agent, "Hababot-Desktop-Client/1.0");
-		}
-		));
+			delete relayWs;
+			relayWs = new websocket::stream<beast::ssl_stream<asio::ip::tcp::socket>>(*ioc, ctx);
 
-		boost::beast::websocket::stream_base::timeout opt{
-			std::chrono::seconds(30),
-			std::chrono::seconds(45),
-			true
-		};
-		relayWs->set_option(opt);
+			asio::ip::tcp::resolver resolver(*ioc);
+			auto const results = co_await resolver.async_resolve("songs.hababot2.com", "443", use_awaitable);
+			co_await asio::async_connect(beast::get_lowest_layer(*relayWs), results, use_awaitable);
 
-		co_await relayWs->next_layer().async_handshake(asio::ssl::stream_base::client, use_awaitable);
-		co_await relayWs->async_handshake("songs.hababot2.com", "/ws-relay", use_awaitable);
-		relayWs->text(true);
-
-		nlohmann::json auth = {
-			{ "role", "streamer" },
-			{ "channel", OAuth::ChannelName() }
-		};
-		co_await relayWs->async_write(asio::buffer(auth.dump()), use_awaitable);
-		relayConnected = true;
-		std::cout << "[Relay] Connected to central hub as " << OAuth::ChannelName() << "\n";
-
-		SendToRelay(SongLibrary::GetPayload());
-
-		beast::flat_buffer buffer;
-		while (true)
-		{
-			co_await relayWs->async_read(buffer, use_awaitable);
-			std::string payload = beast::buffers_to_string(buffer.data());
-			buffer.consume(buffer.size());
-
-			std::cout << "[Relay] Received: " << payload << "\n";
-
-			auto j = nlohmann::json::parse(payload, nullptr, false);
-			if (j.is_discarded()) { continue; }
-
-			std::string action = j.value("action", "");
-
-			try
+			if (!SSL_set_tlsext_host_name(relayWs->next_layer().native_handle(), "songs.hababot2.com"))
 			{
-				if (action == "get_songs")
-				{
-					SendToRelay(SongLibrary::GetPayload());
+				throw std::runtime_error("Failed to set SNI Hostname for relay");
+			}
 
-					nlohmann::json updatePayload = {
-						{ "action", "queue_update" },
-						{ "data", nlohmann::json::parse(SongQueue::SerializeQueue()) }
-					};
-					SendToRelay(updatePayload.dump());
+			relayWs->set_option(boost::beast::websocket::stream_base::decorator(
+				[](boost::beast::websocket::request_type& req) {
+					req.set(boost::beast::http::field::user_agent, "Hababot-Desktop-Client/1.0");
 				}
-				else if (action == "request_song")
+			));
+
+			relayWs->set_option(boost::beast::websocket::stream_base::timeout{
+				std::chrono::seconds(30),
+				std::chrono::seconds(45),
+				true
+			});
+
+			co_await relayWs->next_layer().async_handshake(asio::ssl::stream_base::client, use_awaitable);
+			co_await relayWs->async_handshake("songs.hababot2.com", "/ws-relay", use_awaitable);
+			relayWs->text(true);
+
+			nlohmann::json auth = {
+				{ "role", "streamer" },
+				{ "channel", OAuth::ChannelName() }
+			};
+			co_await relayWs->async_write(asio::buffer(auth.dump()), use_awaitable);
+
+			while (!relayWriteQueue.empty()) { relayWriteQueue.pop(); }
+			relayWriteInProgress = false;
+			relayConnected = true;
+
+			std::cout << "[Relay] Connected to central hub as " << OAuth::ChannelName() << "\n";
+			SendToRelay(SongLibrary::GetPayload());
+
+			beast::flat_buffer buffer;
+			while (isRunning)
+			{
+				co_await relayWs->async_read(buffer, use_awaitable);
+				std::string payload = beast::buffers_to_string(buffer.data());
+				buffer.consume(buffer.size());
+
+				std::cout << "[Relay] Received: " << payload << "\n";
+
+				auto j = nlohmann::json::parse(payload, nullptr, false);
+				if (j.is_discarded()) { continue; }
+
+				std::string action = j.value("action", "");
+
+				try
 				{
-					if (!SongQueue::requestsEnabled)
+					if (action == "get_songs")
 					{
-						std::cout << "[BOT] Request ignored: Queue is currently closed.\n";
-						continue;
-					}
-
-					std::string query = j.value("query", "");
-					std::string requester = j.value("requester", "Anonymous");
-
-					bool isDuplicate = false;
-					bool limitReached = false;
-					size_t queuePos = 0;
-
-					{
-						std::lock_guard<std::mutex> lock(mtx);
-						int activeRequests = 0;
-
-						for (const auto& existing : SongQueue::songQueue)
-						{
-							if (existing.requester == requester && requester != "Anonymous")
-							{
-								++activeRequests;
-							}
-							if (existing.request == query)
-							{
-								isDuplicate = true;
-							}
-						}
-
-						if (activeRequests >= 2)
-						{
-							limitReached = true;
-						}
-						else if (!isDuplicate)
-						{
-							SongQueue::songQueue.push_back(SongRequest{ query, requester });
-							queuePos = SongQueue::songQueue.size();
-						}
-					}
-
-					if (limitReached)
-					{
-						SendToRelay(nlohmann::json{
-							{ "action", "request_failed" },
-							{ "requester", requester },
-							{ "error", "You already have 2 songs in the queue!" }
-							}.dump());
-					}
-					else if (isDuplicate)
-					{
-						SendToRelay(nlohmann::json{
-							{ "action", "request_failed" },
-							{ "requester", requester },
-							{ "error", "Song is already in the queue!" }
-							}.dump());
-					}
-					else
-					{
-						SendMessage("Added \"" + query + "\" to the queue (#" + std::to_string(queuePos) + ") requested by " + requester + "!");
+						SendToRelay(SongLibrary::GetPayload());
 
 						nlohmann::json updatePayload = {
 							{ "action", "queue_update" },
@@ -208,19 +143,99 @@ asio::awaitable<void> TwitchBot::ConnectToRelay()
 						};
 						SendToRelay(updatePayload.dump());
 					}
+					else if (action == "request_song")
+					{
+						if (!SongQueue::requestsEnabled)
+						{
+							std::cout << "[BOT] Request ignored: Queue is currently closed.\n";
+							continue;
+						}
+
+						std::string query = j.value("query", "");
+						std::string requester = j.value("requester", "Anonymous");
+
+						bool isDuplicate = false;
+						bool limitReached = false;
+						size_t queuePos = 0;
+
+						{
+							std::lock_guard<std::mutex> lock(mtx);
+							int activeRequests = 0;
+
+							for (const auto& existing : SongQueue::songQueue)
+							{
+								if (existing.requester == requester && requester != "Anonymous")
+								{
+									++activeRequests;
+								}
+								if (existing.request == query)
+								{
+									isDuplicate = true;
+								}
+							}
+
+							if (activeRequests >= 2)
+							{
+								limitReached = true;
+							}
+							else if (!isDuplicate)
+							{
+								SongQueue::songQueue.push_back(SongRequest{ query, requester });
+								queuePos = SongQueue::songQueue.size();
+							}
+						}
+
+						if (limitReached)
+						{
+							SendToRelay(nlohmann::json{
+								{ "action", "request_failed" },
+								{ "requester", requester },
+								{ "error", "You already have 2 songs in the queue!" }
+								}.dump());
+						}
+						else if (isDuplicate)
+						{
+							SendToRelay(nlohmann::json{
+								{ "action", "request_failed" },
+								{ "requester", requester },
+								{ "error", "Song is already in the queue!" }
+								}.dump());
+						}
+						else
+						{
+							SendMessage("Added \"" + query + "\" to the queue (#" + std::to_string(queuePos) + ") requested by " + requester + "!");
+
+							nlohmann::json updatePayload = {
+								{ "action", "queue_update" },
+								{ "data", nlohmann::json::parse(SongQueue::SerializeQueue()) }
+							};
+							SendToRelay(updatePayload.dump());
+						}
+					}
+				}
+				catch (const std::exception& e)
+				{
+					std::ofstream errLog("hababot2_error.log", std::ios::app);
+					errLog << "[WS Handler Error] " << e.what() << "\n";
 				}
 			}
-			catch (const std::exception& e)
-			{
-				std::ofstream errLog("hababot2_error.log", std::ios::app);
-				errLog << "[WS Handler Error] " << e.what() << "\n";
-			}
 		}
-	}
-	catch (std::exception const& e)
-	{
-		relayConnected = false;
-		std::cerr << "[Relay] Connection dropped: " << e.what() << "\n";
+		catch (const std::exception& e)
+		{
+			relayConnected = false;
+			while (!relayWriteQueue.empty()) { relayWriteQueue.pop(); }
+
+			std::ofstream errLog("hababot2_error.log", std::ios::app);
+			errLog << "[Relay Dropped] " << e.what() << "\n";
+		}
+
+		delete relayWs;
+		relayWs = nullptr;
+
+		if (!isRunning) { break; }
+
+		asio::steady_timer timer(*ioc, std::chrono::seconds(5));
+		co_await timer.async_wait(use_awaitable);
 	}
 }
 
@@ -339,6 +354,7 @@ awaitable<void> TwitchBot::Run()
 			throw std::runtime_error("Failed to authenticate");
 		}
 
+		asio::co_spawn(*ioc, ConnectToRelay(), asio::detached);
 		FetchCheermotes();
 
 		asio::ip::tcp::resolver resolver(*ioc);
@@ -495,7 +511,7 @@ void TwitchBot::Render()
 	ImGui::SetNextWindowPos(ImVec2(0, 0));
 	ImGui::SetNextWindowSize(ImGui::GetIO().DisplaySize);
 
-	ImGuiWindowFlags windowFlags = ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse | 
+	ImGuiWindowFlags windowFlags = ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse |
 		ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_MenuBar | ImGuiWindowFlags_NoBringToFrontOnFocus;
 
 	ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8.0f, 8.0f));

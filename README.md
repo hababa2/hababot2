@@ -10,6 +10,7 @@ A twitch bot, chat viewer, and song queue/request manager
 - [ ] Option for stay on top
 - [ ] Resizable queue window
 - [ ] An X to close the application
+- [ ] Combine json config files
 - [ ] Separate windows for chat and queue?
 
 ## Known Bugs

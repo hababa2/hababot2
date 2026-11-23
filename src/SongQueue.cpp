@@ -361,9 +361,12 @@ ID3D11ShaderResourceView* SongQueue::CreateSrvFromFile(ID3D11Device* device, ID3
 {
 	if (!device || !context) { return nullptr; }
 
+	FILE* f = nullptr;
+	if (_wfopen_s(&f, filepath.c_str(), L"rb") != 0 || !f) { return nullptr; }
+
 	int width = 0, height = 0, channels = 0;
-	unsigned char* pixels = stbi_load(filepath.string().c_str(), &width, &height, &channels, 4);
-	if (!pixels) { return nullptr; }
+	unsigned char* pixels = stbi_load_from_file(f, &width, &height, &channels, 4);
+	fclose(f);
 
 	D3D11_TEXTURE2D_DESC desc{};
 	desc.Width = static_cast<UINT>(width);

@@ -212,7 +212,7 @@ asio::awaitable<void> TwitchBot::ConnectToRelay()
 			}
 			catch (const std::exception& e)
 			{
-				std::ofstream errLog("hababot_error.log", std::ios::app);
+				std::ofstream errLog("hababot2_error.log", std::ios::app);
 				errLog << "[WS Handler Error] " << e.what() << "\n";
 			}
 		}

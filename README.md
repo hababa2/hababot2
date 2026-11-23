@@ -3,7 +3,7 @@ A twitch bot, chat viewer, and song queue/request manager
 
 ## TODO
 - [ ] Persistent queue
-- [ ] Open/close queue commands
+- [x] Open/close queue commands
 - [ ] GIFs
 - [ ] Clickable links
 - [ ] Message Effects
@@ -14,9 +14,9 @@ A twitch bot, chat viewer, and song queue/request manager
 - [ ] Separate windows for chat and queue?
 
 ## Known Bugs
-- [ ] Song scanning can crash (known with rock band songs)
-- [ ] Playing some songs can cause a crash (known with rock band songs)
-- [ ] Window header can block interaction with popups
+- [x] Song scanning can crash (known with rock band songs)
+- [x] Playing some songs can cause a crash (known with rock band songs)
+- [x] Window header can block interaction with popups
 - [ ] Early bird redeem will reset if application is closed and reopened
 - [ ] Sub event will display multiple messages
 

@@ -38,6 +38,9 @@ void SongLibrary::LoadCache(const fs::path& cachePath)
 					ScannedSong s;
 					s.artist = item.value("artist", "");
 					s.name = item.value("name", "");
+
+					if (IsBlank(s.name) || IsBlank(s.artist)) { continue; }
+
 					s.charter = item.value("charter", "");
 					s.genre = item.value("genre", "");
 					s.songLengthMs = item.value("length", int64_t{ 0 });
@@ -120,6 +123,26 @@ std::string SongLibrary::StripCloneHeroTags(std::string_view input)
 		if (!inTag) { out.push_back(input[i]); }
 	}
 
+	static constexpr std::string_view invisibleSeqs[] = {
+		"\xE2\x80\x8B", // U+200B Zero-Width Space
+		"\xE2\x80\x8C", // U+200C Zero-Width Non-Joiner
+		"\xE2\x80\x8D", // U+200D Zero-Width Joiner
+		"\xE2\x80\x8E", // U+200E Left-to-Right Mark
+		"\xE2\x80\x8F", // U+200F Right-to-Left Mark
+		"\xEF\xBB\xBF", // U+FEFF Zero-Width No-Break Space / BOM
+		"\xE2\xA0\x80", // U+2800 Braille Pattern Blank
+		"\xE3\x85\xA4"  // U+3164 Hangul Filler
+	};
+
+	for (std::string_view seq : invisibleSeqs)
+	{
+		size_t pos = 0;
+		while ((pos = out.find(seq, pos)) != std::string::npos)
+		{
+			out.erase(pos, seq.size());
+		}
+	}
+
 	size_t first = out.find_first_not_of(" \t\r\n");
 	if (first == std::string::npos) { return ""; }
 	size_t last = out.find_last_not_of(" \t\r\n");
@@ -140,6 +163,27 @@ std::string SongLibrary::NormalizeAlphaNum(std::string_view input)
 	return out;
 }
 
+bool SongLibrary::IsBlank(std::string_view sv)
+{
+	for (unsigned char c : sv)
+	{
+		if (c > 0x20) { return false; }
+	}
+	return true;
+}
+
+std::string SongLibrary::ToLowerAscii(std::string_view sv)
+{
+	std::string out;
+	out.reserve(sv.size());
+	for (unsigned char c : sv)
+	{
+		if (c >= 'A' && c <= 'Z') { out.push_back(static_cast<char>(c + 32)); }
+		else { out.push_back(static_cast<char>(c)); }
+	}
+	return out;
+}
+
 bool SongLibrary::TryParseInt(std::string_view sv, int64_t& out)
 {
 	if (sv.empty()) { return false; }
@@ -149,25 +193,98 @@ bool SongLibrary::TryParseInt(std::string_view sv, int64_t& out)
 
 void SongLibrary::RebuildPayloadLocked()
 {
-	json webSongs = json::array();
-	for (const auto& s : songs)
+	std::vector<std::string> artists, genres, charters;
+	std::unordered_map<std::string, uint32_t> artistIdx, genreIdx, charterIdx;
+
+	auto intern = [](const std::string& val,
+		std::vector<std::string>& table,
+		std::unordered_map<std::string, uint32_t>& map) -> uint32_t {
+		auto [it, inserted] = map.emplace(val, static_cast<uint32_t>(table.size()));
+		if (inserted) { table.push_back(val); }
+		return it->second;
+	};
+
+	json rows = json::array();
+	for (const ScannedSong& s : songLibrary)
 	{
-		webSongs.push_back({
-			{ "artist", s.value("artist", "") },
-			{ "name", s.value("name", "") },
-			{ "charter", s.value("charter", "") },
-			{ "genre", s.value("genre", "") },
-			{ "length", s.value("length", int64_t{ 0 }) },
-			{ "instruments", s.value("instruments", uint16_t{ 0 }) }
-			});
+		if (IsBlank(s.name) || IsBlank(s.artist)) { continue; }
+
+		uint32_t a = intern(s.artist, artists, artistIdx);
+		uint32_t c = intern(s.charter, charters, charterIdx);
+		uint32_t g = intern(s.genre, genres, genreIdx);
+		int64_t lenSec = (s.songLengthMs > 0) ? (s.songLengthMs / 1000) : 0;
+
+		rows.push_back(json::array({ a, s.name, c, g, lenSec, s.instruments }));
 	}
 
 	json msg = {
 		{ "action", "song_list" },
-		{ "data", std::move(webSongs) },
-		{ "scanning", isScanning.load() }
+		{ "v", 2 },
+		{ "scanning", isScanning.load() },
+		{ "a", std::move(artists) },
+		{ "g", std::move(genres) },
+		{ "c", std::move(charters) },
+		{ "d", std::move(rows) }
 	};
+
 	cachedPayload = msg.dump(-1, ' ', false, nlohmann::json::error_handler_t::replace);
+}
+
+int64_t SongLibrary::FindSongLengthMs(std::string_view query)
+{
+	std::string lowerQuery(query);
+	std::transform(lowerQuery.begin(), lowerQuery.end(), lowerQuery.begin(),
+		[](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+
+	size_t first = lowerQuery.find_first_not_of(" \t\r\n");
+	if (first == std::string::npos) { return 0; }
+	lowerQuery.erase(0, first);
+	if (lowerQuery.starts_with("any ")) { return 0; }
+
+	std::string normQuery = NormalizeAlphaNum(query);
+	if (normQuery.empty()) { return 0; }
+
+	std::lock_guard<std::mutex> lock(mtx);
+
+	for (const ScannedSong& song : songLibrary)
+	{
+		if (song.songLengthMs <= 0) { continue; }
+
+		std::string full = song.artist + " - " + song.name;
+		std::transform(full.begin(), full.end(), full.begin(),
+			[](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+
+		if (full == lowerQuery)
+		{
+			return song.songLengthMs;
+		}
+	}
+
+	int64_t bestLength = 0;
+	size_t bestScore = 0;
+
+	for (const ScannedSong& song : songLibrary)
+	{
+		if (song.songLengthMs <= 0) { continue; }
+
+		std::string normName = NormalizeAlphaNum(song.name);
+		if (normName.empty() || normQuery.find(normName) == std::string::npos) { continue; }
+
+		size_t score = normName.size();
+		std::string normArtist = NormalizeAlphaNum(song.artist);
+		if (!normArtist.empty() && normQuery.find(normArtist) != std::string::npos)
+		{
+			score += normArtist.size() + 100;
+		}
+
+		if (score > bestScore)
+		{
+			bestScore = score;
+			bestLength = song.songLengthMs;
+		}
+	}
+
+	return bestLength;
 }
 
 void SongLibrary::ScanAsync(const fs::path& cachePath)
@@ -275,7 +392,7 @@ void SongLibrary::ScanAsync(const fs::path& cachePath)
 									}
 								}
 
-								if (!song.name.empty() && !song.artist.empty())
+								if (!IsBlank(song.name) && !IsBlank(song.artist))
 								{
 									song.folder = it->path().parent_path();
 									scanned.push_back(std::move(song));
@@ -311,9 +428,39 @@ void SongLibrary::ScanAsync(const fs::path& cachePath)
 				return a.name < b.name;
 			});
 
-			scanned.erase(std::unique(scanned.begin(), scanned.end(), [](const ScannedSong& a, const ScannedSong& b) {
-				return a.artist == b.artist && a.name == b.name && a.charter == b.charter;
-			}), scanned.end());
+			std::unordered_map<std::string, size_t> seen;
+			seen.reserve(scanned.size());
+
+			std::vector<ScannedSong> deduped;
+			deduped.reserve(scanned.size());
+
+			for (ScannedSong& s : scanned)
+			{
+				std::string key = ToLowerAscii(s.artist) + '\x1F' + ToLowerAscii(s.name) + '\x1F' + ToLowerAscii(s.charter);
+
+				auto [it, inserted] = seen.emplace(std::move(key), deduped.size());
+				if (inserted)
+				{
+					deduped.push_back(std::move(s));
+				}
+				else
+				{
+					ScannedSong& existing = deduped[it->second];
+					existing.instruments |= s.instruments;
+					if (existing.songLengthMs <= 0 && s.songLengthMs > 0) { existing.songLengthMs = s.songLengthMs; }
+					if (existing.genre.empty() && !s.genre.empty()) { existing.genre = std::move(s.genre); }
+					if (existing.charter.empty() && !s.charter.empty()) { existing.charter = std::move(s.charter); }
+				}
+			}
+
+			scanned = std::move(deduped);
+
+			std::sort(scanned.begin(), scanned.end(), [](const ScannedSong& a, const ScannedSong& b) {
+				std::string aArt = ToLowerAscii(a.artist);
+				std::string bArt = ToLowerAscii(b.artist);
+				if (aArt != bArt) { return aArt < bArt; }
+				return ToLowerAscii(a.name) < ToLowerAscii(b.name);
+			});
 
 			nlohmann::json jArray = nlohmann::json::array();
 			for (const ScannedSong& s : scanned)

@@ -56,9 +56,9 @@ void TwitchBot::Initialize(asio::io_context& ioc_, asio::ssl::context& ctx_)
 	ioc = &ioc_;
 	ws = new websocket::stream<beast::ssl_stream<asio::ip::tcp::socket>>(ioc_, ctx_);
 
+	SongLibrary::Initialize();
 	SongQueue::LoadDefaultAlbumArt("default_album.png");
 	SongQueue::LoadFromConfig();
-	SongLibrary::Initialize();
 
 	Commands::RegisterCommands();
 }
@@ -134,12 +134,8 @@ asio::awaitable<void> TwitchBot::ConnectToRelay()
 					if (action == "get_songs")
 					{
 						SendToRelay(SongLibrary::GetPayload());
-
-						nlohmann::json updatePayload = {
-							{ "action", "queue_update" },
-							{ "data", nlohmann::json::parse(SongQueue::SerializeQueue()) }
-						};
-						SendToRelay(updatePayload.dump());
+						SongQueue::BroadcastQueue();
+						SongQueue::BroadcastNowPlaying();
 					}
 					else if (action == "request_song")
 					{
@@ -151,6 +147,7 @@ asio::awaitable<void> TwitchBot::ConnectToRelay()
 
 						std::string query = j.value("query", "");
 						std::string requester = j.value("requester", "Anonymous");
+						int64_t lengthMs = j.value("length", int64_t{ 0 });
 
 						bool isDuplicate = false;
 						bool limitReached = false;
@@ -178,7 +175,7 @@ asio::awaitable<void> TwitchBot::ConnectToRelay()
 							}
 							else if (!isDuplicate)
 							{
-								SongQueue::songQueue.push_back(SongRequest{ query, requester });
+								SongQueue::songQueue.push_back(SongRequest{ query, requester, lengthMs });
 								queuePos = SongQueue::songQueue.size();
 								SongQueue::SaveToConfig();
 							}
@@ -204,11 +201,7 @@ asio::awaitable<void> TwitchBot::ConnectToRelay()
 						{
 							SendMessage("Added \"" + query + "\" to the queue (#" + std::to_string(queuePos) + ") requested by " + requester + "!");
 
-							nlohmann::json updatePayload = {
-								{ "action", "queue_update" },
-								{ "data", nlohmann::json::parse(SongQueue::SerializeQueue()) }
-							};
-							SendToRelay(updatePayload.dump());
+							SongQueue::BroadcastQueue();
 						}
 					}
 				}

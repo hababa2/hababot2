@@ -23,6 +23,7 @@ std::mutex SongQueue::mtx;
 std::deque<SongRequest> SongQueue::songQueue;
 std::string SongQueue::currentSongDisplay;
 std::string SongQueue::currentSongRequester;
+int64_t SongQueue::currentSongLengthMs = 0;
 std::filesystem::file_time_type SongQueue::lastSongWriteTime{};
 std::chrono::steady_clock::time_point SongQueue::lastSongPollTime{};
 
@@ -44,7 +45,10 @@ void SongQueue::LoadFromConfig()
 	songQueue.clear();
 	for (const auto& item : Config::data.queue.items)
 	{
-		songQueue.push_back(SongRequest{ item.request, item.requester });
+		int64_t len = item.lengthMs > 0
+			? item.lengthMs
+			: SongLibrary::FindSongLengthMs(item.request);
+		songQueue.push_back(SongRequest{ item.request, item.requester, len });
 	}
 }
 
@@ -58,11 +62,32 @@ void SongQueue::SaveToConfig()
 
 		for (const auto& song : songQueue)
 		{
-			Config::data.queue.items.push_back({ song.request, song.requester });
+			Config::data.queue.items.push_back({ song.request, song.requester, song.lengthMs });
 		}
 	}
 
 	Config::Save("config.json");
+}
+
+std::string SongQueue::FormatDuration(int64_t ms)
+{
+	if (ms <= 0) { return ""; }
+
+	int64_t totalSec = ms / 1000;
+	int64_t hours = totalSec / 3600;
+	int64_t mins = (totalSec % 3600) / 60;
+	int64_t secs = totalSec % 60;
+
+	char buf[32];
+	if (hours > 0)
+	{
+		snprintf(buf, sizeof(buf), "%lld:%02lld:%02lld", hours, mins, secs);
+	}
+	else
+	{
+		snprintf(buf, sizeof(buf), "%lld:%02lld", mins, secs);
+	}
+	return std::string(buf);
 }
 
 void SongQueue::RenderSongQueue()
@@ -100,11 +125,26 @@ void SongQueue::RenderSongQueue()
 		ImGui::TextWrapped("%s", currentSongDisplay.c_str());
 		ImGui::PopFont();
 
+		std::string lenStr = FormatDuration(currentSongLengthMs);
+
 		if (!currentSongRequester.empty())
 		{
 			ImGui::PushFont(TwitchBot::headerFont);
 			ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.75f, 0.75f, 0.75f, 1.0f));
-			ImGui::TextWrapped("Requested by %s", currentSongRequester.c_str());
+			
+			if (!currentSongRequester.empty() && !lenStr.empty())
+			{
+				ImGui::TextWrapped("Requested by %s  •  %s", currentSongRequester.c_str(), lenStr.c_str());
+			}
+			else if (!currentSongRequester.empty())
+			{
+				ImGui::TextWrapped("Requested by %s", currentSongRequester.c_str());
+			}
+			else
+			{
+				ImGui::TextUnformatted(lenStr.c_str());
+			}
+
 			ImGui::PopStyleColor();
 			ImGui::PopFont();
 		}
@@ -118,18 +158,34 @@ void SongQueue::RenderSongQueue()
 	ImGui::EndGroup();
 
 	ImGui::Spacing();
-	ImGui::Separator();
-	ImGui::Spacing();
 
 	float footerHeight = 36.0f;
 	ImGui::BeginChild("QueueListScroll", ImVec2(0, -footerHeight), false);
 	if (queueVisible)
 	{
+		int64_t totalMs = 0;
+		int unknownCount = 0;
+		for (const auto& song : songQueue)
+		{
+			if (song.lengthMs > 0) { totalMs += song.lengthMs; }
+			else { unknownCount++; }
+		}
+
 		ImGui::PushFont(TwitchBot::boldFont);
-		ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.85f, 0.70f, 1.0f, 1.0f));
 		ImGui::Text("Song Queue (%zu)", songQueue.size());
-		ImGui::PopStyleColor();
 		ImGui::PopFont();
+
+		if (totalMs > 0)
+		{
+			std::string totalText = "Total: " + FormatDuration(totalMs) + (unknownCount > 0 ? "+" : "");
+			float textWidth = ImGui::CalcTextSize(totalText.c_str()).x;
+			ImGui::SameLine(ImGui::GetContentRegionAvail().x + ImGui::GetCursorPosX() - textWidth);
+			ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.68f, 0.68f, 0.72f, 1.0f));
+			ImGui::TextUnformatted(totalText.c_str());
+			ImGui::PopStyleColor();
+		}
+
+		ImGui::Separator();
 
 		ImGui::PushFont(TwitchBot::headerFont);
 		if (songQueue.empty())
@@ -146,17 +202,34 @@ void SongQueue::RenderSongQueue()
 					songQueue.erase(songQueue.begin() + i);
 					ImGui::PopID();
 
-					nlohmann::json updatePayload = {
-						{ "action", "queue_update" },
-						{ "data", nlohmann::json::parse(SerializeQueue()) }
-					};
-					TwitchBot::SendToRelay(updatePayload.dump());
+					BroadcastQueue();
 					SaveToConfig();
 
 					break;
 				}
+
 				ImGui::SameLine();
-				ImGui::TextWrapped("%zu. %s (%s)", i + 1, songQueue[i].request.c_str(), songQueue[i].requester.c_str());
+
+				SongRequest& song = songQueue[i];
+				std::string lenStr = FormatDuration(song.lengthMs);
+
+				ImGui::PushFont(TwitchBot::font);
+				if (!lenStr.empty())
+				{
+					ImGui::TextWrapped("%zu. %s  [%s]", i + 1, song.request.c_str(), lenStr.c_str());
+				}
+				else
+				{
+					ImGui::TextWrapped("%zu. %s", i + 1, song.request.c_str());
+				}
+				ImGui::PopFont();
+
+				ImGui::PushFont(TwitchBot::headerFont);
+				ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.70f, 0.70f, 0.75f, 1.0f));
+				ImGui::Text("   Requested by %s", song.requester.c_str());
+				ImGui::PopStyleColor();
+				ImGui::PopFont();
+
 				ImGui::PopID();
 			}
 		}
@@ -171,11 +244,7 @@ void SongQueue::RenderSongQueue()
 	{
 		songQueue.clear();
 
-		nlohmann::json clearPayload = {
-			{ "action", "queue_update" },
-			{ "data", nlohmann::json::parse(SerializeQueue()) }
-		};
-		TwitchBot::SendToRelay(clearPayload.dump());
+		BroadcastQueue();
 		SaveToConfig();
 	}
 
@@ -225,7 +294,9 @@ void SongQueue::UpdateCurrentSong()
 	{
 		currentSongDisplay.clear();
 		currentSongRequester.clear();
+		currentSongLengthMs = 0;
 		ClearAlbumArt();
+		BroadcastNowPlaying();
 		return;
 	}
 
@@ -233,6 +304,7 @@ void SongQueue::UpdateCurrentSong()
 	{
 		currentSongDisplay = formattedDisplay;
 		currentSongRequester.clear();
+		currentSongLengthMs = SongLibrary::FindSongLengthMs(rawContents);
 		UpdateAlbumArt(rawContents);
 
 		for (auto it = songQueue.begin(); it != songQueue.end(); ++it)
@@ -242,11 +314,10 @@ void SongQueue::UpdateCurrentSong()
 				currentSongRequester = it->requester;
 				songQueue.erase(it);
 
-				nlohmann::json updatePayload = {
-					{ "action", "queue_update" },
-					{ "data", nlohmann::json::parse(SerializeQueue()) }
-				};
-				TwitchBot::SendToRelay(updatePayload.dump());
+				if (it->lengthMs > 0) { currentSongLengthMs = it->lengthMs; }
+
+				BroadcastQueue();
+				BroadcastNowPlaying();
 				SaveToConfig();
 
 				break;
@@ -483,23 +554,6 @@ void SongQueue::UpdateAlbumArt(std::string_view currentSongRaw)
 	}
 }
 
-std::string SongQueue::SerializeQueue()
-{
-	nlohmann::json queueJson = nlohmann::json::array();
-
-	std::lock_guard<std::mutex> lock(mtx);
-
-	for (const auto& song : songQueue)
-	{
-		queueJson.push_back({
-			{ "query", song.request },
-			{ "requester", song.requester }
-			});
-	}
-
-	return queueJson.dump();
-}
-
 void SongQueue::BroadcastState()
 {
 	nlohmann::json statePayload = {
@@ -511,7 +565,45 @@ void SongQueue::BroadcastState()
 	SaveToConfig();
 }
 
-void SongQueue::AddToQueue(const SongRequest& request)
+void SongQueue::BroadcastQueue()
+{
+	nlohmann::json items = nlohmann::json::array();
+	{
+		std::lock_guard<std::mutex> lock(mtx);
+		for (const auto& song : songQueue)
+		{
+			items.push_back({
+				{ "query", song.request },
+				{ "requester", song.requester },
+				{ "length", song.lengthMs }
+				});
+		}
+	}
+
+	nlohmann::json payload = {
+		{ "action", "queue_update" },
+		{ "data", std::move(items) }
+	};
+	TwitchBot::SendToRelay(payload.dump(-1, ' ', false, nlohmann::json::error_handler_t::replace));
+}
+
+void SongQueue::BroadcastNowPlaying()
+{
+	nlohmann::json payload;
+	{
+		std::lock_guard<std::mutex> lock(mtx);
+		payload = {
+			{ "action", "now_playing" },
+			{ "song", currentSongDisplay },
+			{ "requester", currentSongRequester },
+			{ "length", currentSongLengthMs }
+		};
+	}
+
+	TwitchBot::SendToRelay(payload.dump(-1, ' ', false, nlohmann::json::error_handler_t::replace));
+}
+
+void SongQueue::AddToQueue(SongRequest&& request)
 {
 	int activeRequests = 0;
 	for (const SongRequest& existing : songQueue)
@@ -521,7 +613,7 @@ void SongQueue::AddToQueue(const SongRequest& request)
 
 	if (activeRequests >= 2)
 	{
-		TwitchBot::SendMessage("You already have 2 songs in the queue! Wait for one to play, @" + request.requester);
+		TwitchBot::SendMessage("You already have 2 songs in the queue! Wait for one to play, " + request.requester);
 		return;
 	}
 
@@ -534,20 +626,24 @@ void SongQueue::AddToQueue(const SongRequest& request)
 
 		if (lowerExisting == lowerNew)
 		{
-			TwitchBot::SendMessage("\"" + existing.request + "\" is already in the queue, @" + request.requester);
+			TwitchBot::SendMessage("\"" + existing.request + "\" is already in the queue, " + request.requester);
 			return;
 		}
 	}
+	
+	if (request.lengthMs <= 0)
+	{
+		request.lengthMs = SongLibrary::FindSongLengthMs(request.request);
+	}
 
-	songQueue.push_back(request);
-	TwitchBot::SendMessage("Added \"" + request.request + "\" to the queue (#" + std::to_string(QueueSize()) + "), @" + request.requester);
+	{
+		std::lock_guard<std::mutex> lock(mtx);
+		songQueue.push_back(request);
+	}
 
-	nlohmann::json updatePayload = {
-		{ "action", "queue_update" },
-		{ "data", nlohmann::json::parse(SongQueue::SerializeQueue()) }
-	};
-	TwitchBot::SendToRelay(updatePayload.dump());
+	TwitchBot::SendMessage("Added \"" + request.request + "\" to the queue (#" + std::to_string(QueueSize()) + "), " + request.requester);
 
+	BroadcastQueue();
 	SaveToConfig();
 }
 

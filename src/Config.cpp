@@ -112,9 +112,10 @@ bool Config::Load(const std::string& filepath)
 						{
 							std::string req = item.value("request", "");
 							std::string user = item.value("requester", "Anonymous");
+							int64_t len = item.value("length", int64_t{ 0 });
 							if (!req.empty())
 							{
-								data.queue.items.push_back({ std::move(req), std::move(user) });
+								data.queue.items.push_back({ std::move(req), std::move(user), len });
 							}
 						}
 					}
@@ -181,8 +182,9 @@ void Config::Save(const std::string& filepath)
 	{
 		queueItems.push_back({
 			{ "request", item.request },
-			{ "requester", item.requester }
-			});
+			{ "requester", item.requester },
+			{ "length", item.lengthMs }
+		});
 	}
 
 	j["queue"] = {

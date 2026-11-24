@@ -42,12 +42,15 @@ public:
 	static void LoadCache(const fs::path& cachePath = "songs.json");
 	static void ScanAsync(const fs::path& cachePath = "songs.json");
 	static std::filesystem::path FindSongFolder(std::string_view currentSongRaw);
+	static int64_t FindSongLengthMs(std::string_view query);
 	static std::string GetPayload();
 
 private:
 	static void RebuildPayloadLocked();
 	static std::string StripCloneHeroTags(std::string_view input);
 	static std::string NormalizeAlphaNum(std::string_view input);
+	static bool IsBlank(std::string_view sv);
+	static std::string ToLowerAscii(std::string_view sv);
 	static bool TryParseInt(std::string_view sv, int64_t& out);
 
 	static json songs;

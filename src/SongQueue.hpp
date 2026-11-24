@@ -24,6 +24,7 @@ struct SongRequest
 {
 	std::string request;
 	std::string requester;
+	int64_t lengthMs = 0;
 };
 
 class SongQueue
@@ -42,20 +43,24 @@ public:
 	static void UpdateAlbumArt(std::string_view currentSongRaw);
 	static void ClearAlbumArt();
 
-	static std::string SerializeQueue();
 	static void BroadcastState();
+	static void BroadcastQueue();
+	static void BroadcastNowPlaying();
 
-	static void AddToQueue(const SongRequest& request);
+	static void AddToQueue(SongRequest&& request);
 
 	static size_t QueueSize();
 	static bool RequestsEnabled();
 
 private:
+	static std::string FormatDuration(int64_t ms);
+
 	static std::mutex mtx;
 
 	static std::deque<SongRequest> songQueue;
 	static std::string currentSongDisplay;
 	static std::string currentSongRequester;
+	static int64_t currentSongLengthMs;
 	static std::filesystem::file_time_type lastSongWriteTime;
 	static std::chrono::steady_clock::time_point lastSongPollTime;
 

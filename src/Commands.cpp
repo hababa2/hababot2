@@ -49,7 +49,7 @@ void Commands::RegisterCommands()
 
 		if (cleanQuery.length() < 3)
 		{
-			TwitchBot::SendMessage("Song request is too short, @" + msg.displayName);
+			TwitchBot::SendMessage("Song request is too short, " + msg.displayName);
 			return;
 		}
 

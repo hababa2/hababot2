@@ -28,6 +28,7 @@ struct PersistedSongRequest
 {
 	std::string request;
 	std::string requester;
+	int64_t lengthMs = 0;
 };
 
 struct QueueConfig

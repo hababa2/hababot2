@@ -3,7 +3,7 @@ A twitch bot, chat viewer, and song queue/request manager
 
 ## TODO
 - [x] Persistent queue
-- [ ] Open/close queue commands
+- [x] Open/close queue commands
 - [ ] GIFs
 - [ ] Clickable links
 - [ ] Message Effects
@@ -11,6 +11,7 @@ A twitch bot, chat viewer, and song queue/request manager
 - [ ] Resizable queue window
 - [x] An X to close the application
 - [x] Combine json config files
+- [ ] Sorting/filtering/search options in the website
 - [ ] Separate windows for chat and queue?
 
 ## Known Bugs

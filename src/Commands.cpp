@@ -65,6 +65,36 @@ void Commands::RegisterCommands()
 
 	commandRegistry["!songs"] = commandRegistry["!list"];
 
+	commandRegistry["!openrequests"] = [&](const ChatMessage& msg, const std::vector<std::string>& args) {
+		if (!HasCommandPermission(msg, CommandPermission::Moderator)) { return; }
+
+		if (SongQueue::RequestsEnabled())
+		{
+			TwitchBot::SendMessage("Song requests are already open!");
+			return;
+		}
+
+		SongQueue::requestsEnabled = true;
+		SongQueue::BroadcastState();
+		SongQueue::SaveToConfig();
+		TwitchBot::SendMessage("Song requests are now OPEN! Use !sr <Artist - Song> or https://songs.hababot2.com/" + OAuth::ChannelName());
+	};
+
+	commandRegistry["!closerequests"] = [&](const ChatMessage& msg, const std::vector<std::string>& args) {
+		if (!HasCommandPermission(msg, CommandPermission::Moderator)) { return; }
+
+		if (!SongQueue::RequestsEnabled())
+		{
+			TwitchBot::SendMessage("Song requests are already closed!");
+			return;
+		}
+
+		SongQueue::requestsEnabled = false;
+		SongQueue::BroadcastState();
+		SongQueue::SaveToConfig();
+		TwitchBot::SendMessage("Song requests are now CLOSED!");
+	};
+
 	for (const auto& [cmd, responseTemplate] : Config::data.customCommands)
 	{
 		std::string normalized = NormalizeCommandName(cmd);
@@ -99,10 +129,19 @@ void Commands::RenderCommandManager()
 	static std::string editingKey;
 	static std::string errorMsg;
 
+	static constexpr const char* permLabels[] = {
+	"Everyone", "Subscriber", "VIP", "Moderator", "Broadcaster"
+	};
+	static int selectedPerm = 0;
+
 	ImGui::Text(editingKey.empty() ? "Add New Command" : "Editing: %s", editingKey.c_str());
 
 	ImGui::SetNextItemWidth(160.0f);
 	ImGui::InputTextWithHint("##cmdName", "!command", cmdBuf, sizeof(cmdBuf));
+	ImGui::SameLine();
+
+	ImGui::SetNextItemWidth(120.0f);
+	ImGui::Combo("##cmdPerm", &selectedPerm, permLabels, IM_ARRAYSIZE(permLabels));
 	ImGui::SameLine();
 
 	if (ImGui::Button(editingKey.empty() ? "Add Command" : "Save Changes"))
@@ -127,9 +166,10 @@ void Commands::RenderCommandManager()
 				RemoveCustomCommand(editingKey);
 			}
 
-			UpsertCustomCommand(normalized, respBuf);
+			UpsertCustomCommand(normalized, respBuf, static_cast<CommandPermission>(selectedPerm));
 			cmdBuf[0] = '\0';
 			respBuf[0] = '\0';
+			selectedPerm = 0;
 			editingKey.clear();
 			errorMsg.clear();
 		}
@@ -142,6 +182,7 @@ void Commands::RenderCommandManager()
 		{
 			cmdBuf[0] = '\0';
 			respBuf[0] = '\0';
+			selectedPerm = 0;
 			editingKey.clear();
 			errorMsg.clear();
 		}
@@ -169,15 +210,16 @@ void Commands::RenderCommandManager()
 	ImGui::Spacing();
 
 	std::string pendingDelete;
-	if (ImGui::BeginTable("CommandsTable", 3,
+	if (ImGui::BeginTable("CommandsTable", 4,
 		ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_Resizable | ImGuiTableFlags_ScrollY))
 	{
 		ImGui::TableSetupColumn("Command", ImGuiTableColumnFlags_WidthFixed, 120.0f);
+		ImGui::TableSetupColumn("Permission", ImGuiTableColumnFlags_WidthFixed, 95.0f);
 		ImGui::TableSetupColumn("Response", ImGuiTableColumnFlags_WidthStretch);
 		ImGui::TableSetupColumn("Actions", ImGuiTableColumnFlags_WidthFixed, 115.0f);
 		ImGui::TableHeadersRow();
 
-		for (const auto& [cmd, response] : Config::data.customCommands)
+		for (const auto& [cmd, customCmd] : Config::data.customCommands)
 		{
 			ImGui::PushID(cmd.c_str());
 			ImGui::TableNextRow();
@@ -186,14 +228,18 @@ void Commands::RenderCommandManager()
 			ImGui::TextUnformatted(cmd.c_str());
 
 			ImGui::TableSetColumnIndex(1);
-			ImGui::TextWrapped("%s", response.c_str());
+			ImGui::TextUnformatted(permLabels[static_cast<int>(customCmd.permission)]);
 
 			ImGui::TableSetColumnIndex(2);
+			ImGui::TextWrapped("%s", customCmd.response.c_str());
+
+			ImGui::TableSetColumnIndex(3);
 			if (ImGui::SmallButton("Edit"))
 			{
 				editingKey = cmd;
 				strncpy_s(cmdBuf, cmd.c_str(), sizeof(cmdBuf) - 1);
-				strncpy_s(respBuf, response.c_str(), sizeof(respBuf) - 1);
+				strncpy_s(respBuf, customCmd.response.c_str(), sizeof(respBuf) - 1);
+				selectedPerm = static_cast<int>(customCmd.permission);
 				errorMsg.clear();
 			}
 			ImGui::SameLine();
@@ -214,6 +260,7 @@ void Commands::RenderCommandManager()
 		{
 			cmdBuf[0] = '\0';
 			respBuf[0] = '\0';
+			selectedPerm = 0;
 			editingKey.clear();
 		}
 		RemoveCustomCommand(pendingDelete);
@@ -353,30 +400,29 @@ std::string Commands::NormalizeCommandName(std::string cmd)
 bool Commands::IsBuiltInCommand(const std::string& cmd)
 {
 	static const std::unordered_set<std::string> builtIns = {
-		"!sr", "!songrequest", "!request", "!list", "!songs"
+		"!sr", "!songrequest", "!request", "!list", "!songs", "!openrequests", "!closerequests"
 	};
 	return builtIns.contains(cmd);
 }
 
-void Commands::BindCustomCommand(const std::string& cmd, const std::string& responseTemplate)
+void Commands::BindCustomCommand(const std::string& cmd, const CustomCommand& customCmd)
 {
-	commandRegistry[cmd] = [responseTemplate](const ChatMessage& msg, const std::vector<std::string>& args) {
-		std::string response = ExpandCommandTemplate(responseTemplate, msg, args);
+	commandRegistry[cmd] = [customCmd](const ChatMessage& msg, const std::vector<std::string>& args) {
+		if (!HasCommandPermission(msg, customCmd.permission)) { return; }
+		std::string response = ExpandCommandTemplate(customCmd.response, msg, args);
 		TwitchBot::SendMessage(response);
 	};
 }
 
-bool Commands::UpsertCustomCommand(const std::string& rawCmd, const std::string& responseTemplate)
+bool Commands::UpsertCustomCommand(const std::string& rawCmd, const std::string& responseTemplate, CommandPermission perm)
 {
 	std::string cmd = NormalizeCommandName(rawCmd);
-	if (cmd.size() < 2 || responseTemplate.empty() || IsBuiltInCommand(cmd))
-	{
-		return false;
-	}
+	if (cmd.size() < 2 || responseTemplate.empty() || IsBuiltInCommand(cmd)) { return false; }
 
-	Config::data.customCommands[cmd] = responseTemplate;
-	BindCustomCommand(cmd, responseTemplate);
-	Config::Save();
+	CustomCommand customCmd{ responseTemplate, perm };
+	Config::data.customCommands[cmd] = customCmd;
+	BindCustomCommand(cmd, customCmd);
+	Config::Save("config.json");
 	return true;
 }
 
@@ -387,4 +433,38 @@ void Commands::RemoveCustomCommand(const std::string& cmd)
 	Config::data.customCommands.erase(cmd);
 	commandRegistry.erase(cmd);
 	Config::Save();
+}
+
+bool Commands::HasCommandPermission(const ChatMessage& msg, CommandPermission required)
+{
+	switch (required)
+	{
+	case CommandPermission::Everyone:    return true;
+	case CommandPermission::Subscriber:  return msg.broadcaster || msg.mod || msg.vip || msg.subscriber;
+	case CommandPermission::VIP:         return msg.broadcaster || msg.mod || msg.vip;
+	case CommandPermission::Moderator:   return msg.broadcaster || msg.mod;
+	case CommandPermission::Broadcaster: return msg.broadcaster;
+	}
+	return false;
+}
+
+const char* Commands::PermissionToString(CommandPermission perm)
+{
+	switch (perm)
+	{
+	case CommandPermission::Subscriber:  return "subscriber";
+	case CommandPermission::VIP:         return "vip";
+	case CommandPermission::Moderator:   return "moderator";
+	case CommandPermission::Broadcaster: return "broadcaster";
+	default:                             return "everyone";
+	}
+}
+
+CommandPermission Commands::StringToPermission(std::string_view str)
+{
+	if (str == "subscriber") { return CommandPermission::Subscriber; }
+	if (str == "vip") { return CommandPermission::VIP; }
+	if (str == "moderator") { return CommandPermission::Moderator; }
+	if (str == "broadcaster") { return CommandPermission::Broadcaster; }
+	return CommandPermission::Everyone;
 }

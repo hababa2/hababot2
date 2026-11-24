@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Commands.hpp"
+
 #include <mutex>
 #include <string>
 #include <vector>
@@ -35,12 +37,18 @@ struct QueueConfig
 	std::vector<PersistedSongRequest> items;
 };
 
+struct CustomCommand
+{
+	std::string response;
+	CommandPermission permission = CommandPermission::Everyone;
+};
+
 struct ConfigSettings
 {
 	bool setupComplete = false;
 	std::string currentSongPath;
 	std::vector<std::string> songFolders;
-	std::unordered_map<std::string, std::string> customCommands;
+	std::unordered_map<std::string, CustomCommand> customCommands;
 
 	WindowConfig window;
 	std::string oauthAccessToken;

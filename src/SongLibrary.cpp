@@ -4,6 +4,7 @@
 
 #include <fstream>
 #include <thread>
+#include <charconv>
 
 std::mutex SongLibrary::mtx;
 json SongLibrary::songs = json::array();
@@ -38,6 +39,9 @@ void SongLibrary::LoadCache(const fs::path& cachePath)
 					s.artist = item.value("artist", "");
 					s.name = item.value("name", "");
 					s.charter = item.value("charter", "");
+					s.genre = item.value("genre", "");
+					s.songLengthMs = item.value("length", int64_t{ 0 });
+					s.instruments = item.value("instruments", uint16_t{ 0 });
 
 					std::string folderUtf8 = item.value("path", "");
 					if (!folderUtf8.empty())
@@ -136,6 +140,13 @@ std::string SongLibrary::NormalizeAlphaNum(std::string_view input)
 	return out;
 }
 
+bool SongLibrary::TryParseInt(std::string_view sv, int64_t& out)
+{
+	if (sv.empty()) { return false; }
+	auto [ptr, ec] = std::from_chars(sv.data(), sv.data() + sv.size(), out);
+	return ec == std::errc{};
+}
+
 void SongLibrary::RebuildPayloadLocked()
 {
 	json webSongs = json::array();
@@ -144,7 +155,10 @@ void SongLibrary::RebuildPayloadLocked()
 		webSongs.push_back({
 			{ "artist", s.value("artist", "") },
 			{ "name", s.value("name", "") },
-			{ "charter", s.value("charter", "") }
+			{ "charter", s.value("charter", "") },
+			{ "genre", s.value("genre", "") },
+			{ "length", s.value("length", int64_t{ 0 }) },
+			{ "instruments", s.value("instruments", uint16_t{ 0 }) }
 			});
 	}
 
@@ -230,7 +244,7 @@ void SongLibrary::ScanAsync(const fs::path& cachePath)
 
 									std::string key = StripCloneHeroTags(std::string_view(line).substr(0, eq));
 									std::transform(key.begin(), key.end(), key.begin(),
-										[](unsigned char c) { return std::tolower(static_cast<unsigned char>(c)); });
+										[](unsigned char c) { return static_cast<char>(std::tolower(c)); });
 
 									std::string val = StripCloneHeroTags(std::string_view(line).substr(eq + 1));
 
@@ -239,6 +253,25 @@ void SongLibrary::ScanAsync(const fs::path& cachePath)
 									else if (key == "charter" || (key == "frets" && song.charter.empty()))
 									{
 										song.charter = std::move(val);
+									}
+									else if (key == "genre") { song.genre = std::move(val); }
+									else if (key == "song_length")
+									{
+										int64_t ms = 0;
+										if (TryParseInt(val, ms) && ms > 0) { song.songLengthMs = ms; }
+									}
+									else if (key.starts_with("diff_"))
+									{
+										int64_t diff = -1;
+										if (TryParseInt(val, diff) && diff >= 0)
+										{
+											if (key == "diff_guitar") { song.instruments |= InstrumentGuitar; }
+											else if (key == "diff_bass") { song.instruments |= InstrumentBass; }
+											else if (key == "diff_rhythm") { song.instruments |= InstrumentRhythm; }
+											else if (key == "diff_drums") { song.instruments |= InstrumentDrums; }
+											else if (key == "diff_drums_real") { song.instruments |= (InstrumentDrums); }
+											else if (key == "diff_keys") { song.instruments |= InstrumentKeys; }
+										}
 									}
 								}
 
@@ -292,8 +325,11 @@ void SongLibrary::ScanAsync(const fs::path& cachePath)
 					{ "artist", s.artist },
 					{ "name", s.name },
 					{ "charter", s.charter },
+					{ "genre", s.genre },
+					{ "length", s.songLengthMs },
+					{ "instruments", s.instruments },
 					{ "path", std::move(folderUtf8) }
-					});
+				});
 			}
 
 			std::string newPayload;

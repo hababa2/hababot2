@@ -13,11 +13,24 @@
 namespace fs = std::filesystem;
 using json = nlohmann::json;
 
+enum InstrumentFlags : uint16_t
+{
+	InstrumentNone = 0,
+	InstrumentGuitar = 1 << 0,
+	InstrumentBass = 1 << 1,
+	InstrumentRhythm = 1 << 2,
+	InstrumentDrums = 1 << 3,
+	InstrumentKeys = 1 << 4,
+};
+
 struct ScannedSong
 {
 	std::string artist;
 	std::string name;
 	std::string charter;
+	std::string genre;
+	int64_t songLengthMs = 0;
+	uint16_t instruments = InstrumentNone;
 	std::filesystem::path folder;
 };
 
@@ -35,6 +48,7 @@ private:
 	static void RebuildPayloadLocked();
 	static std::string StripCloneHeroTags(std::string_view input);
 	static std::string NormalizeAlphaNum(std::string_view input);
+	static bool TryParseInt(std::string_view sv, int64_t& out);
 
 	static json songs;
 	static std::mutex mtx;

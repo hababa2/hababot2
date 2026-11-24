@@ -69,4 +69,5 @@ private:
 	static HANDLE ProcessHandle;
 
 	friend class TwitchBot;
+	friend class Commands;
 };

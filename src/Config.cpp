@@ -54,9 +54,19 @@ bool Config::Load(const std::string& filepath)
 				if (j.contains("custom_commands") && j["custom_commands"].is_object())
 				{
 					data.customCommands.clear();
-					for (auto& [cmd, response] : j["custom_commands"].items())
+					for (auto& [cmd, val] : j["custom_commands"].items())
 					{
-						data.customCommands[cmd] = response.get<std::string>();
+						if (val.is_string())
+						{
+							data.customCommands[cmd] = { val.get<std::string>(), CommandPermission::Everyone };
+						}
+						else if (val.is_object())
+						{
+							data.customCommands[cmd] = {
+								val.value("response", ""),
+								Commands::StringToPermission(val.value("permission", "everyone"))
+							};
+						}
 					}
 				}
 
@@ -130,9 +140,12 @@ void Config::Save(const std::string& filepath)
 	j["songs"]["folders"] = data.songFolders;
 	j["custom_commands"] = nlohmann::json::object();
 
-	for (const auto& [cmd, response] : data.customCommands)
+	for (const auto& [cmd, customCmd] : data.customCommands)
 	{
-		j["custom_commands"][cmd] = response;
+		j["custom_commands"][cmd] = {
+			{ "response", customCmd.response },
+			{ "permission", Commands::PermissionToString(customCmd.permission) }
+		};
 	}
 
 	if (data.window.hasSavedPlacement)

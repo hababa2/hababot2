@@ -154,13 +154,6 @@ struct HypeTrainState
 	int goal = 100;
 };
 
-struct EarlyBirdStats
-{
-	int firstPlace = 0;
-	int secondPlace = 0;
-	int thirdPlace = 0;
-};
-
 struct TwitchTokens;
 
 class TwitchBot
@@ -177,9 +170,7 @@ public:
 	static void BanUser(const std::string& targetUserId, int durationSeconds = 0, const std::string& reason = "Spam bot");
 	static void DeleteChatMessage(const std::string& messageId);
 
-	static void LoadEarlyBirdStats();
-	static void SaveEarlyBirdStats();
-
+	static bool showOnboarding;
 private:
 	static constexpr size_t MaxChatHistory = 200;
 
@@ -192,7 +183,7 @@ private:
 	static void DrawMessage(const ChatMessage& msg);
 
 	static void FetchCheermotes();
-	static ImVec4 HexToImvec4(const std::string& hex);
+	static void SyncEarlyBirdCount();
 
 	static std::optional<ChatMessage> ParseMsg(std::string_view raw);
 	static bool IsEmojiCodepoint(uint32_t cp);
@@ -204,10 +195,10 @@ private:
 	static AutoModAction EvaluateMessage(ChatMessage& msg);
 	static std::string NormalizeForSpamCheck(std::string_view input);
 	static awaitable<void> WriteLoop();
+	static ImVec4 HexToImvec4(const std::string& hex);
 
 	static bool isRunning;
 	static bool showSettings;
-	static bool showOnboarding;
 	static bool showCommandManager;
 	static bool relayWriteInProgress;
 	static std::atomic<bool> relayConnected;
@@ -234,7 +225,6 @@ private:
 	static HypeTrainState hypeTrain;
 
 	static int earlyBirdCount;
-	static std::unordered_map<std::string, EarlyBirdStats> earlyBirdLeaderboard;
 
 	friend class Events;
 	friend class SongQueue;

@@ -29,6 +29,9 @@ struct SongRequest
 class SongQueue
 {
 public:
+	static void LoadFromConfig();
+	static void SaveToConfig();
+
 	static void RenderSongQueue();
 
 	static void UpdateCurrentSong();

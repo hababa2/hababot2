@@ -23,8 +23,8 @@ public:
 
 	static void Close();
 	static bool Resizing();
-	static void SaveWindowPlacement(HWND__* hwnd, const char* filename = "window_config.json");
-	static bool LoadWindowPlacement(HWND__* hwnd, const char* filename = "window_config.json");
+	static void SaveWindowPlacement();
+	static bool LoadWindowPlacement();
 
 	static std::string OpenFileBrowser();
 	static std::string OpenFolderBrowser();

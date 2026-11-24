@@ -2,6 +2,7 @@
 
 #include "Badges.hpp"
 #include "Emotes.hpp"
+#include "Config.hpp"
 
 #include "../resource.h"
 
@@ -117,7 +118,7 @@ void Window::Shutdown()
 	if (hWnd && running) { PostMessageW(hWnd, WM_CLOSE, 0, 0); }
 	if (windowThread.joinable()) { windowThread.join(); }
 
-	UnregisterClassW(L"Chat Viewer", instance);
+	UnregisterClassW(L"Hababot2", instance);
 	hWnd = nullptr;
 }
 
@@ -155,13 +156,13 @@ void Window::WindowThreadLoop()
 	wc.hIcon = LoadIcon(instance, MAKEINTRESOURCE(IDI_ICON1));
 	wc.hCursor = nullptr;
 	wc.hbrBackground = nullptr;
-	wc.lpszMenuName = L"Chat Viewer";
-	wc.lpszClassName = L"Chat Viewer";
+	wc.lpszMenuName = L"Hababot2";
+	wc.lpszClassName = L"Hababot2";
 	wc.hIconSm = LoadIconW(instance, MAKEINTRESOURCE(IDI_ICON1));
 
 	RegisterClassExW(&wc);
 
-	hWnd = CreateWindowExW(WS_EX_APPWINDOW | WS_EX_TOPMOST, L"Chat Viewer", L"Chat Viewer", style,
+	hWnd = CreateWindowExW(WS_EX_APPWINDOW | WS_EX_TOPMOST, L"Hababot2", L"Hababot2", style,
 		100, 100, 600, 600, nullptr, nullptr, instance, nullptr);
 
 	if (hWnd)
@@ -169,7 +170,7 @@ void Window::WindowThreadLoop()
 		MARGINS margins = { -1, -1, -1, -1 };
 		DwmExtendFrameIntoClientArea(hWnd, &margins);
 
-		if (!LoadWindowPlacement(hWnd))
+		if (!LoadWindowPlacement())
 		{
 			ShowWindow(hWnd, SW_SHOW);
 		}
@@ -253,53 +254,42 @@ bool Window::Resizing()
 	return resizing;
 }
 
-void Window::SaveWindowPlacement(HWND hwnd, const char* filename)
+void Window::SaveWindowPlacement()
 {
 	WINDOWPLACEMENT wp{};
 	wp.length = sizeof(WINDOWPLACEMENT);
 
-	if (GetWindowPlacement(hwnd, &wp))
+	if (GetWindowPlacement(hWnd, &wp))
 	{
-		nlohmann::json j = {
-			{ "showCmd", wp.showCmd },
-			{ "left",    wp.rcNormalPosition.left },
-			{ "top",     wp.rcNormalPosition.top },
-			{ "right",   wp.rcNormalPosition.right },
-			{ "bottom",  wp.rcNormalPosition.bottom }
-		};
+		Config::data.window.left = wp.rcNormalPosition.left;
+		Config::data.window.top = wp.rcNormalPosition.top;
+		Config::data.window.right = wp.rcNormalPosition.right;
+		Config::data.window.bottom = wp.rcNormalPosition.bottom;
+		Config::data.window.showCmd = wp.showCmd;
+		Config::data.window.hasSavedPlacement = true;
 
-		std::ofstream file(filename);
-		if (file.is_open())
-		{
-			file << j.dump(4);
-		}
+		Config::Save();
 	}
 }
 
-bool Window::LoadWindowPlacement(HWND hwnd, const char* filename)
+bool Window::LoadWindowPlacement()
 {
-	std::ifstream file(filename);
-	if (!file.is_open()) { return false; }
-
-	auto j = nlohmann::json::parse(file, nullptr, false);
-	if (j.is_discarded()) { return false; }
-
 	WINDOWPLACEMENT wp{};
 	wp.length = sizeof(WINDOWPLACEMENT);
-	GetWindowPlacement(hwnd, &wp);
+	GetWindowPlacement(hWnd, &wp);
 
-	wp.showCmd = j.value("showCmd", SW_SHOWNORMAL);
-	wp.rcNormalPosition.left = j.value("left", 100);
-	wp.rcNormalPosition.top = j.value("top", 100);
-	wp.rcNormalPosition.right = j.value("right", 500);
-	wp.rcNormalPosition.bottom = j.value("bottom", 700);
+	wp.rcNormalPosition.left = Config::data.window.left;
+	wp.rcNormalPosition.top = Config::data.window.top;
+	wp.rcNormalPosition.right = Config::data.window.right;
+	wp.rcNormalPosition.bottom = Config::data.window.bottom;
+	wp.showCmd = Config::data.window.showCmd;
 
 	if (wp.showCmd == SW_SHOWMINIMIZED)
 	{
 		wp.showCmd = SW_SHOWNORMAL;
 	}
 
-	return SetWindowPlacement(hwnd, &wp) != 0;
+	return SetWindowPlacement(hWnd, &wp) != 0;
 }
 
 std::string Window::OpenFileBrowser()
@@ -420,7 +410,6 @@ LRESULT __stdcall Window::WindowsMessageProc(HWND hWnd, UINT msg, WPARAM wParam,
 	case WM_DESTROY: {
 		focused = false;
 		running = false;
-		SaveWindowPlacement(hWnd);
 		PostQuitMessage(0);
 	} return 0;
 	case WM_ERASEBKGND: {} return 1;
@@ -484,10 +473,13 @@ LRESULT __stdcall Window::WindowsMessageProc(HWND hWnd, UINT msg, WPARAM wParam,
 				pBackBuffer->Release();
 			}
 		}
+
+		SaveWindowPlacement();
 	} return 0;
 	case WM_SIZING: {
 	} return 1;
 	case WM_MOVE: {
+		SaveWindowPlacement();
 	} return 0;
 	case WM_KEYDOWN: {
 	} return 0;

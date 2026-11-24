@@ -2,6 +2,7 @@
 
 #include "OAuth.hpp"
 #include "TwitchBot.hpp"
+#include "Config.hpp"
 
 #include <cpr/cpr.h>
 
@@ -186,7 +187,7 @@ void Events::ParseMessage(const std::string& rawJson)
 					alertMsg.username = event.value("user_login", "");
 					alertMsg.displayName = event.value("user_name", alertMsg.username);
 
-					EarlyBirdStats& stats = TwitchBot::earlyBirdLeaderboard[alertMsg.userId];
+					EarlyBirdStats& stats = Config::data.earlyBirds[alertMsg.userId];
 
 					std::string placement;
 					std::string count;
@@ -196,24 +197,24 @@ void Events::ParseMessage(const std::string& rawJson)
 						placement = "1st";
 						alertMsg.colorHex = "#d4af37";
 						alertMsg.backgroundColor = ImVec4(0.83f, 0.68f, 0.21f, 0.65f);
-						++stats.firstPlace;
-						count = placement + " " + std::to_string(stats.firstPlace) + " Time" + (stats.firstPlace > 1 ? "s" : "");
+						++stats.first;
+						count = placement + " " + std::to_string(stats.first) + " Time" + (stats.first > 1 ? "s" : "");
 					}
 					else if (TwitchBot::earlyBirdCount == 2)
 					{
 						placement = "2nd";
 						alertMsg.colorHex = "#c0c0c0";
 						alertMsg.backgroundColor = ImVec4(0.77f, 0.77f, 0.77f, 0.65f);
-						++stats.secondPlace;
-						count = placement + " " + std::to_string(stats.secondPlace) + " Time" + (stats.secondPlace > 1 ? "s" : "");
+						++stats.second;
+						count = placement + " " + std::to_string(stats.second) + " Time" + (stats.second > 1 ? "s" : "");
 					}
 					else if (TwitchBot::earlyBirdCount == 3)
 					{
 						placement = "3rd";
 						alertMsg.colorHex = "#cd7f32";
 						alertMsg.backgroundColor = ImVec4(0.80f, 0.54f, 0.27f, 0.65f);
-						++stats.thirdPlace;
-						count = placement + " " + std::to_string(stats.thirdPlace) + " Time" + (stats.thirdPlace > 1 ? "s" : "");
+						++stats.third;
+						count = placement + " " + std::to_string(stats.third) + " Time" + (stats.third > 1 ? "s" : "");
 					}
 
 					alertMsg.headerText = "EARLY BIRD!";

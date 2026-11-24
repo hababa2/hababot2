@@ -2,6 +2,7 @@
 #include "Window.hpp"
 #include "Events.hpp"
 #include "SongQueue.hpp"
+#include "Config.hpp"
 
 #include <boost/asio.hpp>
 
@@ -12,6 +13,8 @@ namespace asio = boost::asio;
 
 int main()
 {
+	TwitchBot::showOnboarding = !Config::Load("config.json");
+
 	if (!Window::Initialize()) { return 1; }
 
 	asio::io_context ioc;
@@ -38,7 +41,6 @@ int main()
 	ioc.stop();
 	if (networkThread.joinable()) { networkThread.join(); }
 
-	TwitchBot::SaveEarlyBirdStats();
 	Window::Shutdown();
 
 	return 0;

@@ -49,18 +49,16 @@ std::deque<ChatMessage> TwitchBot::chatHistory;
 RaidTrackerState TwitchBot::activeRaid;
 HypeTrainState TwitchBot::hypeTrain;
 
-int TwitchBot::earlyBirdCount = 0;
-std::unordered_map<std::string, EarlyBirdStats> TwitchBot::earlyBirdLeaderboard;
+int TwitchBot::earlyBirdCount;
 
 void TwitchBot::Initialize(asio::io_context& ioc_, asio::ssl::context& ctx_)
 {
 	ioc = &ioc_;
 	ws = new websocket::stream<beast::ssl_stream<asio::ip::tcp::socket>>(ioc_, ctx_);
 
-	showOnboarding = !Config::Load("config.json");
 	SongQueue::LoadDefaultAlbumArt("default_album.png");
+	SongQueue::LoadFromConfig();
 	SongLibrary::Initialize();
-	LoadEarlyBirdStats();
 
 	Commands::RegisterCommands();
 }
@@ -182,6 +180,7 @@ asio::awaitable<void> TwitchBot::ConnectToRelay()
 							{
 								SongQueue::songQueue.push_back(SongRequest{ query, requester });
 								queuePos = SongQueue::songQueue.size();
+								SongQueue::SaveToConfig();
 							}
 						}
 
@@ -278,58 +277,6 @@ asio::awaitable<void> TwitchBot::RelayWriteLoop()
 	relayWriteInProgress = false;
 }
 
-void TwitchBot::FetchCheermotes()
-{
-	cpr::Response r = cpr::Get(
-		cpr::Url{ "https://api.twitch.tv/helix/bits/cheermotes" },
-		cpr::Header{
-			{ "Authorization", "Bearer " + OAuth::AccessToken() },
-			{ "Client-Id", OAuth::ClientId() }
-		}
-	);
-
-	if (r.status_code != 200) { return; }
-
-	auto json = nlohmann::json::parse(r.text, nullptr, false);
-	if (json.is_discarded() || !json.contains("data")) { return; }
-
-	for (const auto& item : json["data"])
-	{
-		std::string prefix = item.value("prefix", "");
-		if (prefix.empty() || !item.contains("tiers")) { continue; }
-
-		std::transform(prefix.begin(), prefix.end(), prefix.begin(),
-			[](unsigned char c) { return std::tolower(c); });
-
-		std::vector<CheermoteTier> tiers;
-		for (const auto& tierJson : item["tiers"])
-		{
-			CheermoteTier tier;
-			tier.minBits = tierJson.value("min_bits", 0);
-			tier.color = HexToImvec4(tierJson.value("color", "#FFFFFF"));
-
-			if (tierJson.contains("images") &&
-				tierJson["images"].contains("dark") &&
-				tierJson["images"]["dark"].contains("animated") &&
-				tierJson["images"]["dark"]["animated"].contains("2"))
-			{
-				tier.url = tierJson["images"]["dark"]["animated"]["2"].get<std::string>();
-			}
-
-			if (!tier.url.empty())
-			{
-				tiers.push_back(std::move(tier));
-			}
-		}
-
-		std::sort(tiers.begin(), tiers.end(), [](const CheermoteTier& a, const CheermoteTier& b) {
-			return a.minBits > b.minBits;
-		});
-
-		cheermotes[prefix] = std::move(tiers);
-	}
-}
-
 awaitable<void> TwitchBot::Run()
 {
 	ImFontConfig fontConfig;
@@ -355,6 +302,7 @@ awaitable<void> TwitchBot::Run()
 		}
 
 		asio::co_spawn(*ioc, ConnectToRelay(), asio::detached);
+		SyncEarlyBirdCount();
 		FetchCheermotes();
 
 		asio::ip::tcp::resolver resolver(*ioc);
@@ -1090,46 +1038,95 @@ void TwitchBot::DeleteChatMessage(const std::string& messageId)
 	}).detach();
 }
 
-void TwitchBot::LoadEarlyBirdStats()
+void TwitchBot::SyncEarlyBirdCount()
 {
-	std::ifstream file("early_birds.json");
+	std::string url = "https://api.twitch.tv/helix/channel_points/custom_rewards?broadcaster_id=" + OAuth::BroadcasterId();
 
-	if (file.is_open())
-	{
-		try
-		{
-			nlohmann::json j;
-			file >> j;
-
-			for (auto& [user, stats] : j.items())
-			{
-				earlyBirdLeaderboard[user] = {
-					stats.value("first", 0),
-					stats.value("second", 0),
-					stats.value("third", 0)
-				};
-			}
+	cpr::Response r = cpr::Get(
+		cpr::Url{ url },
+		cpr::Header{
+			{ "Authorization", "Bearer " + OAuth::AccessToken() },
+			{ "Client-Id", OAuth::ClientId() }
 		}
-		catch (...) { std::cerr << "Failed to parse early_birds.json\n"; }
+	);
+
+	if (r.status_code != 200) { return; }
+
+	auto j = nlohmann::json::parse(r.text, nullptr, false);
+	if (j.is_discarded() || !j.contains("data") || !j["data"].is_array()) { return; }
+
+	for (const auto& reward : j["data"])
+	{
+		std::string title = reward.value("title", "");
+		std::transform(title.begin(), title.end(), title.begin(),
+			[](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+
+		if (title == "early bird")
+		{
+			if (reward.contains("redemptions_redeemed_current_stream") &&
+				reward["redemptions_redeemed_current_stream"].is_number_integer())
+			{
+				earlyBirdCount = reward["redemptions_redeemed_current_stream"].get<int>();
+				std::cout << "[EarlyBird] Synced current stream redemptions: " << earlyBirdCount << "\n";
+			}
+			else
+			{
+				earlyBirdCount = 0;
+			}
+			break;
+		}
 	}
 }
 
-void TwitchBot::SaveEarlyBirdStats()
+void TwitchBot::FetchCheermotes()
 {
-	nlohmann::json j;
-	for (const auto& [user, stats] : earlyBirdLeaderboard)
-	{
-		j[user] = {
-			{ "first", stats.firstPlace },
-			{ "second", stats.secondPlace },
-			{ "third", stats.thirdPlace },
-		};
-	}
+	cpr::Response r = cpr::Get(
+		cpr::Url{ "https://api.twitch.tv/helix/bits/cheermotes" },
+		cpr::Header{
+			{ "Authorization", "Bearer " + OAuth::AccessToken() },
+			{ "Client-Id", OAuth::ClientId() }
+		}
+	);
 
-	std::ofstream file("early_birds.json");
-	if (file.is_open())
+	if (r.status_code != 200) { return; }
+
+	auto json = nlohmann::json::parse(r.text, nullptr, false);
+	if (json.is_discarded() || !json.contains("data")) { return; }
+
+	for (const auto& item : json["data"])
 	{
-		file << j.dump(4);
+		std::string prefix = item.value("prefix", "");
+		if (prefix.empty() || !item.contains("tiers")) { continue; }
+
+		std::transform(prefix.begin(), prefix.end(), prefix.begin(),
+			[](unsigned char c) { return std::tolower(c); });
+
+		std::vector<CheermoteTier> tiers;
+		for (const auto& tierJson : item["tiers"])
+		{
+			CheermoteTier tier;
+			tier.minBits = tierJson.value("min_bits", 0);
+			tier.color = HexToImvec4(tierJson.value("color", "#FFFFFF"));
+
+			if (tierJson.contains("images") &&
+				tierJson["images"].contains("dark") &&
+				tierJson["images"]["dark"].contains("animated") &&
+				tierJson["images"]["dark"]["animated"].contains("2"))
+			{
+				tier.url = tierJson["images"]["dark"]["animated"]["2"].get<std::string>();
+			}
+
+			if (!tier.url.empty())
+			{
+				tiers.push_back(std::move(tier));
+			}
+		}
+
+		std::sort(tiers.begin(), tiers.end(), [](const CheermoteTier& a, const CheermoteTier& b) {
+			return a.minBits > b.minBits;
+		});
+
+		cheermotes[prefix] = std::move(tiers);
 	}
 }
 

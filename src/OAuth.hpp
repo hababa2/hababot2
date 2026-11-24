@@ -14,8 +14,6 @@ public:
 	static const std::string& ChannelName();
 
 private:
-	static bool SaveTokens(const std::string& filepath);
-	static void LoadTokens(const std::string& filepath);
 	static std::optional<std::string> CatchOAuthToken();
 	static bool ValidateAndExtractUserData();
 

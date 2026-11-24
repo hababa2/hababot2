@@ -12,57 +12,120 @@
 
 ConfigSettings Config::data{};
 
+std::mutex Config::mtx;
+
 bool Config::Load(const std::string& filepath)
 {
-	std::ifstream file(filepath);
-	if (!file.is_open())
+	bool fileExisted = false;
+
 	{
+		std::lock_guard<std::mutex> lock(mtx);
 		SetDefaults();
-		return false;
-	}
 
-	std::stringstream buffer;
-	buffer << file.rdbuf();
-	std::string rawJson = buffer.str();
-
-	for (size_t i = 0; i < rawJson.length(); ++i)
-	{
-		if (rawJson[i] == '\\' && i + 1 < rawJson.length() && rawJson[i + 1] != '"')
+		std::ifstream file(filepath);
+		if (file.is_open())
 		{
-			rawJson[i] = '/';
-		}
-	}
+			fileExisted = true;
+			std::stringstream buffer;
+			buffer << file.rdbuf();
+			std::string rawJson = buffer.str();
 
-	try
-	{
-		nlohmann::json j = nlohmann::json::parse(rawJson);
-
-		if (j.contains("currentSongPath")) { data.currentSongPath = j["currentSongPath"]; }
-
-		if (j.contains("songs") && j["songs"].contains("folders"))
-		{
-			data.songFolders = j["songs"]["folders"].get<std::vector<std::string>>();
-		}
-
-		if (j.contains("custom_commands"))
-		{
-			for (auto& [cmd, response] : j["custom_commands"].items())
+			for (size_t i = 0; i < rawJson.length(); ++i)
 			{
-				data.customCommands[cmd] = response.get<std::string>();
+				if (rawJson[i] == '\\' && i + 1 < rawJson.length() && rawJson[i + 1] != '"')
+				{
+					rawJson[i] = '/';
+				}
+			}
+
+			try
+			{
+				nlohmann::json j = nlohmann::json::parse(rawJson);
+
+				data.setupComplete = j.value("setup_complete", true);
+
+				if (j.contains("currentSongPath")) { data.currentSongPath = j["currentSongPath"]; }
+
+				if (j.contains("songs") && j["songs"].contains("folders"))
+				{
+					data.songFolders = j["songs"]["folders"].get<std::vector<std::string>>();
+				}
+
+				if (j.contains("custom_commands") && j["custom_commands"].is_object())
+				{
+					data.customCommands.clear();
+					for (auto& [cmd, response] : j["custom_commands"].items())
+					{
+						data.customCommands[cmd] = response.get<std::string>();
+					}
+				}
+
+				if (j.contains("window") && j["window"].is_object())
+				{
+					const auto& w = j["window"];
+					data.window.left = w.value("left", data.window.left);
+					data.window.top = w.value("top", data.window.top);
+					data.window.right = w.value("right", data.window.right);
+					data.window.bottom = w.value("bottom", data.window.bottom);
+					data.window.showCmd = w.value("showCmd", data.window.showCmd);
+					data.window.hasSavedPlacement = true;
+				}
+
+				if (j.contains("oauth") && j["oauth"].is_object())
+				{
+					data.oauthAccessToken = j["oauth"].value("access_token", "");
+				}
+
+				if (j.contains("early_birds") && j["early_birds"].is_object())
+				{
+					data.earlyBirds.clear();
+					for (auto& [user, stats] : j["early_birds"].items())
+					{
+						data.earlyBirds[user] = {
+							stats.value("first", 0),
+							stats.value("second", 0),
+							stats.value("third", 0)
+						};
+					}
+				}
+
+				if (j.contains("queue") && j["queue"].is_object())
+				{
+					const auto& q = j["queue"];
+					data.queue.requestsEnabled = q.value("requests_enabled", true);
+					data.queue.queueVisible = q.value("queue_visible", true);
+					data.queue.items.clear();
+
+					if (q.contains("items") && q["items"].is_array())
+					{
+						for (const auto& item : q["items"])
+						{
+							std::string req = item.value("request", "");
+							std::string user = item.value("requester", "Anonymous");
+							if (!req.empty())
+							{
+								data.queue.items.push_back({ std::move(req), std::move(user) });
+							}
+						}
+					}
+				}
+			}
+			catch (const std::exception& e)
+			{
+				std::cerr << "[Config] Failed to parse config: " << e.what() << "\n";
 			}
 		}
 	}
-	catch (const std::exception& e)
-	{
-		std::cerr << "[Config] Failed to parse config: " << e.what() << "\n";
-	}
 
-	return true;
+	return fileExisted && data.setupComplete;
 }
 
 void Config::Save(const std::string& filepath)
 {
+	std::lock_guard<std::mutex> lock(mtx);
+
 	nlohmann::json j;
+	j["setup_complete"] = data.setupComplete;
 	j["currentSongPath"] = data.currentSongPath;
 	j["songs"]["folders"] = data.songFolders;
 	j["custom_commands"] = nlohmann::json::object();
@@ -72,10 +135,61 @@ void Config::Save(const std::string& filepath)
 		j["custom_commands"][cmd] = response;
 	}
 
-	std::ofstream file(filepath);
+	if (data.window.hasSavedPlacement)
+	{
+		j["window"] = {
+			{ "left", data.window.left },
+			{ "top", data.window.top },
+			{ "right", data.window.right },
+			{ "bottom", data.window.bottom },
+			{ "showCmd", data.window.showCmd }
+		};
+	}
+
+	if (!data.oauthAccessToken.empty())
+	{
+		j["oauth"] = {
+			{ "access_token", data.oauthAccessToken }
+		};
+	}
+
+	j["early_birds"] = nlohmann::json::object();
+	for (const auto& [user, stats] : data.earlyBirds)
+	{
+		j["early_birds"][user] = {
+			{ "first", stats.first },
+			{ "second", stats.second },
+			{ "third", stats.third }
+		};
+	}
+
+	nlohmann::json queueItems = nlohmann::json::array();
+	for (const auto& item : data.queue.items)
+	{
+		queueItems.push_back({
+			{ "request", item.request },
+			{ "requester", item.requester }
+			});
+	}
+
+	j["queue"] = {
+		{ "requests_enabled", data.queue.requestsEnabled },
+		{ "queue_visible", data.queue.queueVisible },
+		{ "items", std::move(queueItems) }
+	};
+
+	std::filesystem::path targetPath(filepath);
+	std::filesystem::path tmpPath = targetPath;
+	tmpPath += ".tmp";
+
+	std::ofstream file(tmpPath);
 	if (file.is_open())
 	{
-		file << j.dump(4);
+		file << j.dump(4, ' ', false, nlohmann::json::error_handler_t::replace);
+		file.close();
+
+		std::error_code ec;
+		std::filesystem::rename(tmpPath, targetPath, ec);
 	}
 }
 
@@ -188,6 +302,7 @@ void Config::OnboardingPopup()
 			folders.erase(std::remove_if(folders.begin(), folders.end(),
 				[](const std::string& s) { return s.empty(); }), folders.end());
 
+			Config::data.setupComplete = true;
 			Config::Save("config.json");
 			SongLibrary::Initialize();
 			ImGui::CloseCurrentPopup();

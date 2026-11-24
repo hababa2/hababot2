@@ -35,6 +35,36 @@ bool SongQueue::queueVisible = true;
 HANDLE SongQueue::JobHandle = nullptr;
 HANDLE SongQueue::ProcessHandle = nullptr;
 
+void SongQueue::LoadFromConfig()
+{
+	std::lock_guard<std::mutex> lock(mtx);
+	requestsEnabled = Config::data.queue.requestsEnabled;
+	queueVisible = Config::data.queue.queueVisible;
+
+	songQueue.clear();
+	for (const auto& item : Config::data.queue.items)
+	{
+		songQueue.push_back(SongRequest{ item.request, item.requester });
+	}
+}
+
+void SongQueue::SaveToConfig()
+{
+	{
+		std::lock_guard<std::mutex> lock(mtx);
+		Config::data.queue.requestsEnabled = requestsEnabled;
+		Config::data.queue.queueVisible = queueVisible;
+		Config::data.queue.items.clear();
+
+		for (const auto& song : songQueue)
+		{
+			Config::data.queue.items.push_back({ song.request, song.requester });
+		}
+	}
+
+	Config::Save("config.json");
+}
+
 void SongQueue::RenderSongQueue()
 {
 	ImGui::BeginChild("SongQueue", ImVec2(0, 0), ImGuiChildFlags_FrameStyle, ImGuiWindowFlags_NoScrollbar);
@@ -121,6 +151,7 @@ void SongQueue::RenderSongQueue()
 						{ "data", nlohmann::json::parse(SerializeQueue()) }
 					};
 					TwitchBot::SendToRelay(updatePayload.dump());
+					SaveToConfig();
 
 					break;
 				}
@@ -145,6 +176,7 @@ void SongQueue::RenderSongQueue()
 			{ "data", nlohmann::json::parse(SerializeQueue()) }
 		};
 		TwitchBot::SendToRelay(clearPayload.dump());
+		SaveToConfig();
 	}
 
 	ImGui::PopStyleColor();
@@ -215,6 +247,7 @@ void SongQueue::UpdateCurrentSong()
 					{ "data", nlohmann::json::parse(SerializeQueue()) }
 				};
 				TwitchBot::SendToRelay(updatePayload.dump());
+				SaveToConfig();
 
 				break;
 			}
@@ -475,12 +508,13 @@ void SongQueue::BroadcastState()
 		{ "queue_visible", queueVisible }
 	};
 	TwitchBot::SendToRelay(statePayload.dump());
+	SaveToConfig();
 }
 
 void SongQueue::AddToQueue(const SongRequest& request)
 {
 	int activeRequests = 0;
-	for (const SongRequest& existing : SongQueue::songQueue)
+	for (const SongRequest& existing : songQueue)
 	{
 		if (existing.requester == request.requester) { ++activeRequests; }
 	}
@@ -491,7 +525,7 @@ void SongQueue::AddToQueue(const SongRequest& request)
 		return;
 	}
 
-	for (const SongRequest& existing : SongQueue::songQueue)
+	for (const SongRequest& existing : songQueue)
 	{
 		std::string lowerExisting = existing.request;
 		std::string lowerNew = request.request;
@@ -505,14 +539,16 @@ void SongQueue::AddToQueue(const SongRequest& request)
 		}
 	}
 
-	SongQueue::songQueue.push_back(request);
-	TwitchBot::SendMessage("Added \"" + request.request + "\" to the queue (#" + std::to_string(SongQueue::QueueSize()) + "), @" + request.requester);
+	songQueue.push_back(request);
+	TwitchBot::SendMessage("Added \"" + request.request + "\" to the queue (#" + std::to_string(QueueSize()) + "), @" + request.requester);
 
 	nlohmann::json updatePayload = {
 		{ "action", "queue_update" },
 		{ "data", nlohmann::json::parse(SongQueue::SerializeQueue()) }
 	};
 	TwitchBot::SendToRelay(updatePayload.dump());
+
+	SaveToConfig();
 }
 
 size_t SongQueue::QueueSize()

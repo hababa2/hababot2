@@ -1,5 +1,7 @@
 #include "OAuth.hpp"
 #include "Badges.hpp"
+#include "Config.hpp"
+
 #include "json.hpp"
 
 #include <cpr/cpr.h>
@@ -27,7 +29,6 @@ bool OAuth::Authenticate()
 {
 	clientId = "or5qfnj2finuzd3120a42rlfx9tcyc";
 
-	LoadTokens("oauth.json");
 	bool readyToConnect = false;
 
 	if (Valid())
@@ -40,7 +41,8 @@ bool OAuth::Authenticate()
 		else
 		{
 			std::cout << "[SYSTEM] Saved access token expired or invalid.\n";
-			accessToken.clear();
+			Config::data.oauthAccessToken.clear();
+			Config::Save();
 		}
 	}
 
@@ -51,8 +53,8 @@ bool OAuth::Authenticate()
 
 		if (newToken)
 		{
-			accessToken = newToken.value();
-			SaveTokens("oauth.json");
+			Config::data.oauthAccessToken = newToken.value();
+			Config::Save();
 
 			if (ValidateAndExtractUserData())
 			{
@@ -64,7 +66,7 @@ bool OAuth::Authenticate()
 
 	if (readyToConnect)
 	{
-		Badges::LoadBadgeMappings(accessToken, clientId, channelName);
+		Badges::LoadBadgeMappings(Config::data.oauthAccessToken, clientId, channelName);
 	}
 
 	return readyToConnect;
@@ -74,7 +76,7 @@ bool OAuth::ValidateAndExtractUserData()
 {
 	cpr::Response r = cpr::Get(
 		cpr::Url{ "https://id.twitch.tv/oauth2/validate" },
-		cpr::Header{ { "Authorization", "OAuth " + accessToken } }
+		cpr::Header{ { "Authorization", "OAuth " + Config::data.oauthAccessToken } }
 	);
 
 	if (r.status_code == 200)
@@ -92,34 +94,6 @@ bool OAuth::ValidateAndExtractUserData()
 		}
 	}
 	return false;
-}
-
-bool OAuth::SaveTokens(const std::string& filepath)
-{
-	json j;
-	j["access_token"] = accessToken;
-
-	std::ofstream file(filepath);
-	if (file.is_open())
-	{
-		file << j.dump(4);
-		return true;
-	}
-	return false;
-}
-
-void OAuth::LoadTokens(const std::string& filepath)
-{
-	std::ifstream file(filepath);
-	if (file.is_open())
-	{
-		try
-		{
-			json j = json::parse(file);
-			accessToken = j.value("access_token", "");
-		}
-		catch (...) { std::cerr << "[SYSTEM] Corrupted oauth.json\n"; }
-	}
 }
 
 std::optional<std::string> OAuth::CatchOAuthToken()
@@ -218,8 +192,8 @@ std::optional<std::string> OAuth::CatchOAuthToken()
 	}
 }
 
-bool OAuth::Valid() { return !accessToken.empty(); }
+bool OAuth::Valid() { return !Config::data.oauthAccessToken.empty(); }
 const std::string& OAuth::ChannelName() { return channelName; }
 const std::string& OAuth::BroadcasterId() { return broadcasterId; }
 const std::string& OAuth::ClientId() { return clientId; }
-const std::string& OAuth::AccessToken() { return accessToken; }
+const std::string& OAuth::AccessToken() { return Config::data.oauthAccessToken; }

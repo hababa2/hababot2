@@ -521,9 +521,7 @@ LRESULT __stdcall Window::WindowsMessageProc(HWND hWnd, UINT msg, WPARAM wParam,
 
 			if (ImGui::GetCurrentContext() != nullptr)
 			{
-				bool anyPopupOpen = ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel);
-
-				if (anyPopupOpen || ImGui::IsAnyItemHovered() || ImGui::IsAnyItemActive()) { return HTCLIENT; }
+				if (ImGui::IsAnyItemHovered() || ImGui::IsAnyItemActive()) { return HTCLIENT; }
 			}
 
 			return HTCAPTION;

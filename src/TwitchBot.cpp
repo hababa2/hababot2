@@ -875,10 +875,6 @@ void TwitchBot::RenderSettingsWindow()
 
 	if (ImGui::BeginPopupModal("Settings", &showSettings, ImGuiWindowFlags_AlwaysAutoResize))
 	{
-		float minTopY = ImGui::GetMainViewport()->Pos.y + 32.0f;
-		ImVec2 pos = ImGui::GetWindowPos();
-		if (pos.y < minTopY) { ImGui::SetWindowPos(ImVec2(pos.x, minTopY)); }
-
 		if (ImGui::IsKeyPressed(ImGuiKey_Escape))
 		{
 			showSettings = false;

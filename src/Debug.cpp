@@ -6,130 +6,324 @@
 #include "imgui.h"
 
 #include <string>
+#include <vector>
 
 void Debug::RenderDebugTools()
 {
 #if defined(_DEBUG)
-	ImGui::BeginChild("DebugRegion", ImVec2(0, 80), false);
+	static int debugGiftCounter = 1;
+
+	ImGui::BeginChild("DebugRegion", ImVec2(0, 100), false);
 
 	if (ImGui::CollapsingHeader("Debug & Testing"))
 	{
-		if (ImGui::Button("Test Resub"))
+		if (ImGui::Button("Sub (Blank)"))
 		{
-			std::string resubJson = R"({
+			std::string json = R"({
 				"metadata": {
-			        "message_type": "notification",
-			        "subscription_type": "channel.subscription.message"
-			    },
-			    "payload": {
-			        "subscription": {
-					    "id": "f1c2a387-161a-49f9-a165-0f21d7a4e1c4",
-					    "type": "channel.subscription.message",
-					    "version": "1",
-					    "status": "enabled",
-					    "cost": 0,
-					    "condition": {
-					       "broadcaster_user_id": "1337"
-					    },
-					     "transport": {
-					        "method": "webhook",
-					        "callback": "https://example.com/webhooks/callback"
-					    },
-					    "created_at": "2019-11-16T10:11:12.634234626Z"
-					},
+					"message_type": "notification",
+					"subscription_type": "channel.chat.notification"
+				},
+				"payload": {
 					"event": {
-					    "user_id": "1234",
-					    "user_login": "cool_user",
-					    "user_name": "Cool_User",
-					    "broadcaster_user_id": "1337",
-					    "broadcaster_user_login": "cooler_user",
-					    "broadcaster_user_name": "Cooler_User",
-					    "tier": "1000",
-					    "message": {
-					        "text": "Love the stream! FevziGG",
-					        "emotes": [
-					            {
-					                "begin": 17,
-					                "end": 24,
-					                "id": "302976485"
-					            }
-					        ]
-					    },
-					    "cumulative_months": 15,
-					    "streak_months": 7,
-					    "duration_months": 6
+						"notice_type": "sub",
+						"chatter_is_anonymous": false,
+						"chatter_user_id": "1001",
+						"chatter_user_login": "metaldrummer99",
+						"chatter_user_name": "MetalDrummer99",
+						"color": "#9146FF",
+						"message": { "text": "", "fragments": [] },
+						"sub": {
+							"sub_tier": "1000",
+							"is_prime": false,
+							"duration_months": 1
+						}
 					}
-			    }
+				}
 			})";
 
-			Events::ParseMessage(resubJson);
+			Events::ParseMessage(json);
 		}
 
 		ImGui::SameLine();
 
-		if (ImGui::Button("Test Gift Subs"))
+		if (ImGui::Button("Resub (Msg)"))
 		{
-			std::string giftSubJson = R"({
+			std::string json = R"({
 				"metadata": {
-			        "message_type": "notification",
-			        "subscription_type": "channel.subscription.gift"
-			    },
-			    "payload": {
-					"subscription": {
-					    "id": "f1c2a387-161a-49f9-a165-0f21d7a4e1c4",
-					    "type": "channel.subscription.gift",
-					    "version": "1",
-					    "status": "enabled",
-					    "cost": 0,
-					    "condition": {
-					       "broadcaster_user_id": "1337"
-					    },
-					     "transport": {
-					        "method": "webhook",
-					        "callback": "https://example.com/webhooks/callback"
-					    },
-					    "created_at": "2019-11-16T10:11:12.634234626Z"
-					},
+					"message_type": "notification",
+					"subscription_type": "channel.chat.notification"
+				},
+				"payload": {
 					"event": {
-					    "user_id": "1234",
-					    "user_login": "cool_user",
-					    "user_name": "Cool_User",
-					    "broadcaster_user_id": "1337",
-					    "broadcaster_user_login": "cooler_user",
-					    "broadcaster_user_name": "Cooler_User",
-					    "total": 2,
-					    "tier": "1000",
-					    "cumulative_total": 284,
-					    "is_anonymous": false
+						"notice_type": "resub",
+						"chatter_is_anonymous": false,
+						"chatter_user_id": "1234",
+						"chatter_user_login": "cool_user",
+						"chatter_user_name": "Cool_User",
+						"color": "#9146FF",
+						"message": {
+							"text": "Love the stream! FevziGG",
+							"fragments": [
+								{ "type": "text", "text": "Love the stream! " },
+								{ "type": "emote", "text": "FevziGG", "emote": { "id": "302976485" } }
+							]
+						},
+						"resub": {
+							"sub_tier": "1000",
+							"is_prime": false,
+							"cumulative_months": 15,
+							"streak_months": 7
+						}
 					}
-			    }
+				}
 			})";
 
-			Events::ParseMessage(giftSubJson);
+			Events::ParseMessage(json);
 		}
 
 		ImGui::SameLine();
 
-		if (ImGui::Button("Test Sub"))
+		if (ImGui::Button("Resub (Blank)"))
 		{
-			std::string subJson = R"({
-			    "metadata": {
-			        "message_type": "notification",
-			        "subscription_type": "channel.subscribe"
-			    },
-			    "payload": {
-			        "event": {
-			            "user_name": "MetalDrummer99",
-			            "is_gift": false,
-			            "tier": "1000"
-			        }
-			    }
+			std::string json = R"({
+				"metadata": {
+					"message_type": "notification",
+					"subscription_type": "channel.chat.notification"
+				},
+				"payload": {
+					"event": {
+						"notice_type": "resub",
+						"chatter_is_anonymous": false,
+						"chatter_user_id": "1235",
+						"chatter_user_login": "quiet_sub",
+						"chatter_user_name": "QuietSub",
+						"color": "#9146FF",
+						"message": { "text": "", "fragments": [] },
+						"resub": {
+							"sub_tier": "2000",
+							"is_prime": false,
+							"cumulative_months": 6,
+							"streak_months": null
+						}
+					}
+				}
 			})";
 
-			Events::ParseMessage(subJson);
+			Events::ParseMessage(json);
 		}
 
 		ImGui::SameLine();
+
+		if (ImGui::Button("Gift (Single)"))
+		{
+			std::string json = R"({
+				"metadata": {
+					"message_type": "notification",
+					"subscription_type": "channel.chat.notification"
+				},
+				"payload": {
+					"event": {
+						"notice_type": "sub_gift",
+						"chatter_is_anonymous": false,
+						"chatter_user_id": "2001",
+						"chatter_user_login": "generous_viewer",
+						"chatter_user_name": "GenerousViewer",
+						"color": "#FF69B4",
+						"sub_gift": {
+							"sub_tier": "1000",
+							"recipient_user_name": "LuckyChatter",
+							"community_gift_id": null,
+							"cumulative_total": 12
+						}
+					}
+				}
+			})";
+
+			Events::ParseMessage(json);
+		}
+
+		ImGui::SameLine();
+
+		if (ImGui::Button("Gift (1 Random)"))
+		{
+			std::string giftId = "debug-rand-" + std::to_string(debugGiftCounter++);
+
+			std::string summaryJson = R"({
+				"metadata": {
+					"message_type": "notification",
+					"subscription_type": "channel.chat.notification"
+				},
+				"payload": {
+					"event": {
+						"notice_type": "community_sub_gift",
+						"chatter_is_anonymous": false,
+						"chatter_user_id": "2002",
+						"chatter_user_login": "random_gifter",
+						"chatter_user_name": "RandomGifter",
+						"color": "#FF69B4",
+						"community_sub_gift": {
+							"id": ")" + giftId + R"(",
+							"sub_tier": "1000",
+							"total": 1,
+							"cumulative_total": 5
+						}
+					}
+				}
+			})";
+
+			std::string recipientJson = R"({
+				"metadata": {
+					"message_type": "notification",
+					"subscription_type": "channel.chat.notification"
+				},
+				"payload": {
+					"event": {
+						"notice_type": "sub_gift",
+						"chatter_is_anonymous": false,
+						"chatter_user_id": "2002",
+						"chatter_user_login": "random_gifter",
+						"chatter_user_name": "RandomGifter",
+						"color": "#FF69B4",
+						"sub_gift": {
+							"sub_tier": "1000",
+							"recipient_user_name": "RandomWinner",
+							"community_gift_id": ")" + giftId + R"(",
+							"cumulative_total": 5
+						}
+					}
+				}
+			})";
+
+			Events::ParseMessage(summaryJson);
+			Events::ParseMessage(recipientJson);
+		}
+
+		ImGui::SameLine();
+
+		if (ImGui::Button("Gift Bomb (5)"))
+		{
+			std::string giftId = "debug-bomb-" + std::to_string(debugGiftCounter++);
+
+			std::string summaryJson = R"({
+				"metadata": {
+					"message_type": "notification",
+					"subscription_type": "channel.chat.notification"
+				},
+				"payload": {
+					"event": {
+						"notice_type": "community_sub_gift",
+						"chatter_is_anonymous": false,
+						"chatter_user_id": "2003",
+						"chatter_user_login": "mega_gifter",
+						"chatter_user_name": "MegaGifter",
+						"color": "#FF69B4",
+						"community_sub_gift": {
+							"id": ")" + giftId + R"(",
+							"sub_tier": "1000",
+							"total": 5,
+							"cumulative_total": 284
+						}
+					}
+				}
+			})";
+
+			Events::ParseMessage(summaryJson);
+
+			const std::vector<std::string> recipients = {
+				"ViewerOne", "ViewerTwo", "ViewerThree", "ViewerFour", "ViewerFive"
+			};
+
+			for (const std::string& rec : recipients)
+			{
+				std::string recJson = R"({
+					"metadata": {
+						"message_type": "notification",
+						"subscription_type": "channel.chat.notification"
+					},
+					"payload": {
+						"event": {
+							"notice_type": "sub_gift",
+							"chatter_is_anonymous": false,
+							"chatter_user_id": "2003",
+							"chatter_user_login": "mega_gifter",
+							"chatter_user_name": "MegaGifter",
+							"color": "#FF69B4",
+							"sub_gift": {
+								"sub_tier": "1000",
+								"recipient_user_name": ")" + rec + R"(",
+								"community_gift_id": ")" + giftId + R"(",
+								"cumulative_total": 284
+							}
+						}
+					}
+				})";
+
+				Events::ParseMessage(recJson);
+			}
+		}
+
+		ImGui::SameLine();
+
+		if (ImGui::Button("Gift Bomb (50)"))
+		{
+			std::string giftId = "debug-bomb-" + std::to_string(debugGiftCounter++);
+
+			std::string summaryJson = R"({
+				"metadata": {
+					"message_type": "notification",
+					"subscription_type": "channel.chat.notification"
+				},
+				"payload": {
+					"event": {
+						"notice_type": "community_sub_gift",
+						"chatter_is_anonymous": false,
+						"chatter_user_id": "2003",
+						"chatter_user_login": "mega_gifter",
+						"chatter_user_name": "MegaGifter",
+						"color": "#FF69B4",
+						"community_sub_gift": {
+							"id": ")" + giftId + R"(",
+							"sub_tier": "1000",
+							"total": 50,
+							"cumulative_total": 284
+						}
+					}
+				}
+			})";
+
+			Events::ParseMessage(summaryJson);
+
+			const std::vector<std::string> recipients(50, "Viewer");
+
+			for (const std::string& rec : recipients)
+			{
+				std::string recJson = R"({
+					"metadata": {
+						"message_type": "notification",
+						"subscription_type": "channel.chat.notification"
+					},
+					"payload": {
+						"event": {
+							"notice_type": "sub_gift",
+							"chatter_is_anonymous": false,
+							"chatter_user_id": "2003",
+							"chatter_user_login": "mega_gifter",
+							"chatter_user_name": "MegaGifter",
+							"color": "#FF69B4",
+							"sub_gift": {
+								"sub_tier": "1000",
+								"recipient_user_name": ")" + rec + R"(",
+								"community_gift_id": ")" + giftId + R"(",
+								"cumulative_total": 284
+							}
+						}
+					}
+				})";
+
+				Events::ParseMessage(recJson);
+			}
+		}
 
 		if (ImGui::Button("Test Follow"))
 		{
@@ -319,6 +513,98 @@ void Debug::RenderDebugTools()
 			})";
 
 			Events::ParseMessage(earlyBirdJson);
+		}
+
+		ImGui::SameLine();
+
+		if (ImGui::Button("Watch Streak (Msg)"))
+		{
+			std::string json = R"({
+				"metadata": {
+					"message_type": "notification",
+					"subscription_type": "channel.chat.notification"
+				},
+				"payload": {
+					"event": {
+						"notice_type": "watch_streak",
+						"chatter_is_anonymous": false,
+						"chatter_user_id": "3001",
+						"chatter_user_login": "loyal_viewer",
+						"chatter_user_name": "LoyalViewer",
+						"color": "#00CED1",
+						"message": {
+							"text": "Never miss a stream! FevziGG",
+							"fragments": [
+								{ "type": "text", "text": "Never miss a stream! " },
+								{ "type": "emote", "text": "FevziGG", "emote": { "id": "302976485" } }
+							]
+						},
+						"watch_streak": {
+							"streak_count": 5,
+							"channel_points_awarded": 450
+						}
+					}
+				}
+			})";
+
+			Events::ParseMessage(json);
+		}
+
+		ImGui::SameLine();
+
+		if (ImGui::Button("Watch Streak (Blank)"))
+		{
+			std::string json = R"({
+				"metadata": {
+					"message_type": "notification",
+					"subscription_type": "channel.chat.notification"
+				},
+				"payload": {
+					"event": {
+						"notice_type": "watch_streak",
+						"chatter_is_anonymous": false,
+						"chatter_user_id": "3002",
+						"chatter_user_login": "lurker_99",
+						"chatter_user_name": "Lurker99",
+						"color": "#9146FF",
+						"message": { "text": "", "fragments": [] },
+						"watch_streak": {
+							"streak_count": 10,
+							"channel_points_awarded": 450
+						}
+					}
+				}
+			})";
+
+			Events::ParseMessage(json);
+		}
+
+		ImGui::SameLine();
+
+		if (ImGui::Button("Prime Upgrade"))
+		{
+			std::string json = R"({
+				"metadata": {
+					"message_type": "notification",
+					"subscription_type": "channel.chat.notification"
+				},
+				"payload": {
+					"event": {
+						"notice_type": "prime_paid_upgrade",
+						"chatter_is_anonymous": false,
+						"chatter_user_id": "3003",
+						"chatter_user_login": "prime_upgrader",
+						"chatter_user_name": "PrimeUpgrader",
+						"color": "#1E90FF",
+						"message": { "text": "", "fragments": [] },
+						"prime_paid_upgrade": {
+							"sub_tier": "1000"
+						}
+					}
+				}
+			})";
+
+			Events::ParseMessage(json);
 		}
 	}
 

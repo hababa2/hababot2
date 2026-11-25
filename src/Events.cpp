@@ -8,11 +8,126 @@
 
 #include <iostream>
 
+namespace
+{
+	struct PendingGift
+	{
+		std::string gifter;
+		std::string userId;
+		std::string username;
+		std::string colorHex = "#9146FF";
+		std::string tier = "Tier 1";
+		int expectedTotal = 0;
+		int cumulativeTotal = 0;
+		bool hasSummary = false;
+		std::vector<std::string> recipients;
+	};
+
+	std::optional<asio::any_io_executor> eventExecutor;
+	std::mutex pendingGiftMtx;
+	std::unordered_map<std::string, PendingGift> pendingGifts;
+
+	std::string JoinRecipients(const std::vector<std::string>& names)
+	{
+		if (names.empty()) { return ""; }
+		if (names.size() == 1) { return names[0]; }
+		if (names.size() == 2) { return names[0] + " and " + names[1]; }
+
+		std::string out;
+		for (size_t i = 0; i < names.size(); ++i)
+		{
+			if (i > 0)
+			{
+				out += (i + 1 == names.size()) ? ", and " : ", ";
+			}
+			out += names[i];
+		}
+		return out;
+	}
+
+	void SendGiftCard(const PendingGift& gift)
+	{
+		ChatMessage msg{};
+		msg.isAlert = true;
+		msg.userId = gift.userId;
+		msg.username = gift.username;
+		msg.displayName = gift.gifter;
+		msg.colorHex = gift.colorHex;
+
+		msg.hasBackground = true;
+		msg.hasAccentBar = true;
+		msg.headerColor = ImVec4(1.0f, 0.55f, 0.85f, 1.0f);
+		msg.backgroundColor = ImVec4(0.50f, 0.14f, 0.38f, 0.65f);
+		msg.accentColor = ImVec4(0.95f, 0.30f, 0.70f, 1.0f);
+
+		int count = std::max(gift.expectedTotal, static_cast<int>(gift.recipients.size()));
+
+		if (count <= 1 && gift.recipients.size() == 1)
+		{
+			msg.headerText = "Gift Sub • " + gift.tier;
+			msg.text = gift.gifter + " gifted a " + gift.tier + " sub to " + gift.recipients[0] + "!";
+			if (gift.cumulativeTotal > 1)
+			{
+				msg.text += " (" + std::to_string(gift.cumulativeTotal) + " total gifted)";
+			}
+		}
+		else
+		{
+			msg.headerText = "Community Gift (" + gift.tier + ") • " + std::to_string(count) + " Subs";
+			if (gift.cumulativeTotal > count)
+			{
+				msg.headerText += " • " + std::to_string(gift.cumulativeTotal) + " Total";
+			}
+
+			if (!gift.recipients.empty())
+			{
+				msg.text = gift.gifter + " gifted " + std::to_string(count) + " " + gift.tier +
+					" subs to: " + JoinRecipients(gift.recipients) + "!";
+			}
+			else
+			{
+				msg.text = gift.gifter + " gifted " + std::to_string(count) + " " + gift.tier +
+					" subs to the community!";
+			}
+		}
+
+		msg.segments.push_back(TextSegment{ msg.text });
+		std::cout << "[EVENTSUB] " << msg.headerText << " | " << msg.text << '\n';
+		TwitchBot::SendAlert(msg);
+	}
+
+	void FlushPendingGift(const std::string& giftId)
+	{
+		PendingGift ready;
+		{
+			std::lock_guard<std::mutex> lock(pendingGiftMtx);
+			auto it = pendingGifts.find(giftId);
+			if (it == pendingGifts.end()) { return; }
+			ready = std::move(it->second);
+			pendingGifts.erase(it);
+		}
+
+		SendGiftCard(ready);
+	}
+
+	void ScheduleGiftFallback(const std::string& giftId)
+	{
+		if (!eventExecutor.has_value()) { return; }
+
+		asio::co_spawn(*eventExecutor, [giftId]() -> awaitable<void> {
+			asio::steady_timer timer(co_await asio::this_coro::executor, std::chrono::seconds(3));
+			co_await timer.async_wait(asio::use_awaitable);
+			FlushPendingGift(giftId);
+		}, asio::detached);
+	}
+}
+
 std::string Events::sessionId;
 
 awaitable<void> Events::Run()
 {
 	auto executor = co_await asio::this_coro::executor;
+	eventExecutor = executor;
 
 	asio::ssl::context ctx(asio::ssl::context::tlsv12_client);
 	ctx.load_verify_file("cacert.pem");
@@ -76,9 +191,6 @@ void Events::ParseMessage(const std::string& rawJson)
 			SubscribeToEvent("channel.hype_train.progress", "2");
 			SubscribeToEvent("channel.hype_train.end", "2");
 			SubscribeToEvent("channel.shoutout.create", "1");
-			SubscribeToEvent("channel.subscribe", "1");
-			SubscribeToEvent("channel.subscription.message", "1");
-			SubscribeToEvent("channel.subscription.gift", "1");
 		}
 		else if (messageType == "session_keepalive") {}
 		else if (messageType == "notification")
@@ -97,40 +209,9 @@ void Events::ParseMessage(const std::string& rawJson)
 				alertMsg.text = userName + " followed the channel!";
 				alertMsg.backgroundColor = ImVec4(0.73f, 0.96f, 0.94f, 0.60f);
 			}
-			else if (subType == "channel.subscribe" ||
-				subType == "channel.subscription.message" ||
-				subType == "channel.subscription.gift")
-			{
-				ProcessSubscription(subType, event);
-			}
 			else if (subType == "channel.chat.notification")
 			{
-				std::string noticeType = event["notice_type"];
-				std::string chatterName = event["chatter_user_name"];
-
-				if (noticeType == "sub_gift")
-				{
-					std::string recipient = event["sub_gift"]["recipient_user_name"];
-					alertMsg.text = chatterName + " gifted a sub to " + recipient + "!";
-					alertMsg.backgroundColor = ImVec4(0.8f, 0.2f, 0.6f, 1.0f);
-				}
-				else if (noticeType == "community_sub_gift")
-				{
-					int total = event["community_sub_gift"]["total"];
-					alertMsg.text = chatterName + " gifted " + std::to_string(total) + " subs to the community!";
-					alertMsg.backgroundColor = ImVec4(0.8f, 0.2f, 0.6f, 1.0f);
-				}
-				else if (noticeType == "sub" || noticeType == "resub")
-				{
-					alertMsg.text = chatterName + " just subscribed!";
-					alertMsg.backgroundColor = ImVec4(0.6f, 0.2f, 0.8f, 1.0f);
-				}
-				else if (noticeType == "watch_streak")
-				{
-					int streak = event["watch_streak"]["streak_count"];
-					alertMsg.text = chatterName + " is on a " + std::to_string(streak) + " stream watch streak!";
-					alertMsg.backgroundColor = ImVec4(0.6f, 0.2f, 0.8f, 1.0f);
-				}
+				ProcessChatNotification(event);
 			}
 			else if (subType == "channel.bits.use")
 			{
@@ -292,141 +373,216 @@ void Events::ParseMessage(const std::string& rawJson)
 	}
 }
 
-void Events::ProcessSubscription(const std::string& subType, JsonType& event)
+void Events::ProcessChatNotification(const JsonType& event)
 {
-	ChatMessage subMsg{};
-	subMsg.userId = event.value("user_id", "");
-	subMsg.username = event.value("user_login", "");
-	subMsg.displayName = event.value("user_name", subMsg.username);
-	subMsg.colorHex = "#9146FF";
+	std::string noticeType = JsonStr(event, "notice_type");
+	bool isAnon = JsonBool(event, "chatter_is_anonymous");
+	std::string chatterName = isAnon ? "Anonymous" : JsonStr(event, "chatter_user_name", "Someone");
 
-	subMsg.headerColor = ImVec4(0.85f, 0.45f, 0.95f, 1.0f);
-	subMsg.hasBackground = true;
-	subMsg.backgroundColor = ImVec4(0.35f, 0.15f, 0.55f, 0.65f);
-	subMsg.hasAccentBar = true;
-	subMsg.accentColor = ImVec4(0.65f, 0.35f, 0.95f, 1.0f);
+	ChatMessage msg{};
+	msg.userId = JsonStr(event, "chatter_user_id");
+	msg.username = JsonStr(event, "chatter_user_login");
+	msg.displayName = chatterName;
+	msg.colorHex = JsonStr(event, "color", "#9146FF");
 
-	std::string tierRaw = event.value("tier", "1000");
-	std::string tierText = (tierRaw == "1000") ? "Tier 1" : (tierRaw == "2000") ? "Tier 2" : (tierRaw == "3000") ? "Tier 3" : "Prime";
+	msg.hasBackground = true;
+	msg.hasAccentBar = true;
 
-	if (subType == "channel.subscription.message")
+	auto applySubTheme = [&]() {
+		msg.headerColor = ImVec4(0.85f, 0.55f, 1.0f, 1.0f);
+		msg.backgroundColor = ImVec4(0.35f, 0.15f, 0.55f, 0.65f);
+		msg.accentColor = ImVec4(0.65f, 0.35f, 0.95f, 1.0f);
+	};
+
+	auto applyGiftTheme = [&]() {
+		msg.headerColor = ImVec4(1.0f, 0.55f, 0.85f, 1.0f);
+		msg.backgroundColor = ImVec4(0.50f, 0.14f, 0.38f, 0.65f);
+		msg.accentColor = ImVec4(0.95f, 0.30f, 0.70f, 1.0f);
+	};
+
+	if (noticeType == "sub" && event.contains("sub") && event["sub"].is_object())
 	{
-		int cumulative = event.value("cumulative_months", 1);
-		int streak = event.value("streak_months", 0);
+		applySubTheme();
+		const auto& sub = event["sub"];
+		std::string tier = FormatTier(sub);
+		int duration = JsonInt(sub, "duration_months", 1);
 
-		subMsg.headerText = "Resub (" + tierText + "): " + std::to_string(cumulative) + " Months";
+		msg.headerText = "New Sub • " + tier;
+		if (duration > 1)
+		{
+			msg.headerText += " (" + std::to_string(duration) + " Months)";
+		}
 
+		if (!PopulateMessageFragments(event, msg))
+		{
+			msg.isAlert = true;
+			msg.text = chatterName + " just subscribed with " + tier + "!";
+			msg.segments.push_back(TextSegment{ msg.text });
+		}
+	}
+	else if (noticeType == "resub" && event.contains("resub") && event["resub"].is_object())
+	{
+		applySubTheme();
+		const auto& resub = event["resub"];
+		std::string tier = FormatTier(resub);
+		int cumulative = JsonInt(resub, "cumulative_months", 1);
+		int streak = JsonInt(resub, "streak_months", 0);
+
+		msg.headerText = "Resub (" + tier + ") • " + std::to_string(cumulative) +
+			(cumulative == 1 ? " Month" : " Months");
 		if (streak > 1)
 		{
-			subMsg.headerText += " | " + std::to_string(streak) + " Month Streak!";
+			msg.headerText += " • " + std::to_string(streak) + " Month Streak";
 		}
 
-		if (event.contains("message") && event["message"].contains("text"))
+		if (!PopulateMessageFragments(event, msg))
 		{
-			std::string rawText = event["message"]["text"].get<std::string>();
-			subMsg.text = rawText;
-
-			if (event["message"].contains("emotes") && event["message"]["emotes"].is_array() && !event["message"]["emotes"].empty())
-			{
-				int wLen = MultiByteToWideChar(CP_UTF8, 0, rawText.c_str(), -1, nullptr, 0);
-				std::wstring wText(wLen, 0);
-				MultiByteToWideChar(CP_UTF8, 0, rawText.c_str(), -1, &wText[0], wLen);
-				if (!wText.empty() && wText.back() == L'\0') { wText.pop_back(); }
-
-				struct EmoteLoc { size_t start, end; std::string id; };
-				std::vector<EmoteLoc> emoteLocs;
-
-				for (const auto& emoteNode : event["message"]["emotes"])
-				{
-					emoteLocs.push_back({
-						emoteNode.value("begin", 0ULL),
-						emoteNode.value("end", 0ULL),
-						emoteNode.value("id", "")
-						});
-				}
-
-				std::sort(emoteLocs.begin(), emoteLocs.end(), [](const auto& a, const auto& b) {
-					return a.start < b.start;
-				});
-
-				size_t cursor = 0;
-				for (const auto& eloc : emoteLocs)
-				{
-					if (eloc.start > cursor && eloc.start <= wText.length())
-					{
-						std::wstring wSub = wText.substr(cursor, eloc.start - cursor);
-						int utf8Len = WideCharToMultiByte(CP_UTF8, 0, wSub.c_str(), -1, nullptr, 0, nullptr, nullptr);
-						std::string u8Sub(utf8Len, 0);
-						WideCharToMultiByte(CP_UTF8, 0, wSub.c_str(), -1, &u8Sub[0], utf8Len, nullptr, nullptr);
-						if (!u8Sub.empty() && u8Sub.back() == '\0') u8Sub.pop_back();
-
-						if (!u8Sub.empty())
-						{
-							TextSegment seg;
-							seg.text = u8Sub;
-							subMsg.segments.push_back(seg);
-						}
-					}
-
-					size_t emoteLen = (eloc.end >= eloc.start) ? (eloc.end - eloc.start + 1) : 0;
-					std::wstring wEmote = wText.substr(eloc.start, emoteLen);
-
-					int utf8Len = WideCharToMultiByte(CP_UTF8, 0, wEmote.c_str(), -1, nullptr, 0, nullptr, nullptr);
-					std::string u8Emote(utf8Len, 0);
-					WideCharToMultiByte(CP_UTF8, 0, wEmote.c_str(), -1, &u8Emote[0], utf8Len, nullptr, nullptr);
-					if (!u8Emote.empty() && u8Emote.back() == '\0') u8Emote.pop_back();
-
-					EmoteSegment emoteSeg;
-					emoteSeg.emoteId = eloc.id;
-					subMsg.segments.push_back(emoteSeg);
-
-					cursor = eloc.end + 1;
-				}
-
-				if (cursor < wText.length())
-				{
-					std::wstring wSub = wText.substr(cursor);
-					int utf8Len = WideCharToMultiByte(CP_UTF8, 0, wSub.c_str(), -1, nullptr, 0, nullptr, nullptr);
-					std::string u8Sub(utf8Len, 0);
-					WideCharToMultiByte(CP_UTF8, 0, wSub.c_str(), -1, &u8Sub[0], utf8Len, nullptr, nullptr);
-					if (!u8Sub.empty() && u8Sub.back() == '\0') u8Sub.pop_back();
-
-					if (!u8Sub.empty())
-					{
-						TextSegment seg;
-						seg.text = u8Sub;
-						subMsg.segments.push_back(seg);
-					}
-				}
-			}
-			else
-			{
-				TextSegment seg;
-				seg.text = rawText;
-				subMsg.segments.push_back(seg);
-			}
-		}
-		else
-		{
-			subMsg.text = "Just resubscribed!";
-
-			TextSegment seg;
-			seg.text = subMsg.text;
-			subMsg.segments.push_back(seg);
-			subMsg.isAlert = true;
+			msg.isAlert = true;
+			msg.text = chatterName + " resubscribed for " + std::to_string(cumulative) +
+				(cumulative == 1 ? " month!" : " months!");
+			msg.segments.push_back(TextSegment{ msg.text });
 		}
 	}
-	else if (subType == "channel.subscription.gift")
+	else if (noticeType == "sub_gift" && event.contains("sub_gift") && event["sub_gift"].is_object())
 	{
-		int total = event.value("total", 1);
-		int cumulative = event.value("cumulative_total", 1);
+		const auto& gift = event["sub_gift"];
+		std::string tier = FormatTier(gift);
+		std::string recipient = JsonStr(gift, "recipient_user_name", "someone");
+		std::string communityGiftId = JsonStr(gift, "community_gift_id");
 
-		subMsg.text = subMsg.displayName + " gifted " + std::to_string(total) + " " + tierText + " subs to the community! " + std::to_string(cumulative) + " total!";
-		subMsg.segments.push_back(TextSegment{ subMsg.text });
-		subMsg.isAlert = true;
+		if (communityGiftId.empty())
+		{
+			PendingGift single{};
+			single.gifter = chatterName;
+			single.userId = msg.userId;
+			single.username = msg.username;
+			single.colorHex = msg.colorHex;
+			single.tier = tier;
+			single.expectedTotal = 1;
+			single.cumulativeTotal = JsonInt(gift, "cumulative_total", 0);
+			single.recipients.push_back(recipient);
+			SendGiftCard(single);
+			return;
+		}
+
+		bool shouldFlush = false;
+		bool isNewEntry = false;
+		{
+			std::lock_guard<std::mutex> lock(pendingGiftMtx);
+			auto [it, inserted] = pendingGifts.try_emplace(communityGiftId);
+			isNewEntry = inserted;
+
+			PendingGift& pending = it->second;
+			if (pending.gifter.empty())
+			{
+				pending.gifter = chatterName;
+				pending.userId = msg.userId;
+				pending.username = msg.username;
+				pending.colorHex = msg.colorHex;
+				pending.tier = tier;
+			}
+
+			pending.recipients.push_back(recipient);
+
+			if (pending.hasSummary && static_cast<int>(pending.recipients.size()) >= pending.expectedTotal)
+			{
+				shouldFlush = true;
+			}
+		}
+
+		if (shouldFlush)
+		{
+			FlushPendingGift(communityGiftId);
+		}
+		else if (isNewEntry)
+		{
+			ScheduleGiftFallback(communityGiftId);
+		}
+		return;
+	}
+	else if (noticeType == "community_sub_gift" && event.contains("community_sub_gift") && event["community_sub_gift"].is_object())
+	{
+		const auto& gift = event["community_sub_gift"];
+		std::string giftId = JsonStr(gift, "id");
+		std::string tier = FormatTier(gift);
+		int total = JsonInt(gift, "total", 1);
+		int cumulative = JsonInt(gift, "cumulative_total", 0);
+
+		if (giftId.empty())
+		{
+			PendingGift fallback{};
+			fallback.gifter = chatterName;
+			fallback.userId = msg.userId;
+			fallback.username = msg.username;
+			fallback.colorHex = msg.colorHex;
+			fallback.tier = tier;
+			fallback.expectedTotal = total;
+			fallback.cumulativeTotal = cumulative;
+			SendGiftCard(fallback);
+			return;
+		}
+
+		bool shouldFlush = false;
+		bool isNewEntry = false;
+		{
+			std::lock_guard<std::mutex> lock(pendingGiftMtx);
+			auto [it, inserted] = pendingGifts.try_emplace(giftId);
+			isNewEntry = inserted;
+
+			PendingGift& pending = it->second;
+			pending.gifter = chatterName;
+			pending.userId = msg.userId;
+			pending.username = msg.username;
+			pending.colorHex = msg.colorHex;
+			pending.tier = tier;
+			pending.expectedTotal = total;
+			pending.cumulativeTotal = cumulative;
+			pending.hasSummary = true;
+
+			if (static_cast<int>(pending.recipients.size()) >= pending.expectedTotal)
+			{
+				shouldFlush = true;
+			}
+		}
+
+		if (shouldFlush)
+		{
+			FlushPendingGift(giftId);
+		}
+		else if (isNewEntry)
+		{
+			ScheduleGiftFallback(giftId);
+		}
+		return;
+	}
+	else if (noticeType == "gift_paid_upgrade" || noticeType == "prime_paid_upgrade")
+	{
+		applySubTheme();
+		msg.isAlert = true;
+		msg.headerText = (noticeType == "prime_paid_upgrade") ? "Prime Upgrade" : "Gift Sub Upgrade";
+		msg.text = chatterName + " upgraded their subscription!";
+		msg.segments.push_back(TextSegment{ msg.text });
+	}
+	else if (noticeType == "watch_streak" && event.contains("watch_streak") && event["watch_streak"].is_object())
+	{
+		applySubTheme();
+		int streak = JsonInt(event["watch_streak"], "streak_count", 1);
+		msg.headerText = "Watch Streak • " + std::to_string(streak) + " Streams";
+
+		if (!PopulateMessageFragments(event, msg))
+		{
+			msg.isAlert = true;
+			msg.text = chatterName + " is on a " + std::to_string(streak) + "-stream watch streak!";
+			msg.segments.push_back(TextSegment{ msg.text });
+		}
+	}
+	else
+	{
+		return;
 	}
 
-	TwitchBot::SendAlert(subMsg);
+	std::cout << "[EVENTSUB] " << msg.headerText << " | " << msg.text << '\n';
+	TwitchBot::SendAlert(msg);
 }
 
 void Events::SubscribeToEvent(const std::string& type, const std::string& version)
@@ -487,4 +643,76 @@ void Events::SubscribeToEvent(const std::string& type, const std::string& versio
 			std::cerr << "[EVENTSUB] Failed to subscribe: " << r.text << '\n';
 		}
 	}).detach();
+}
+
+std::string Events::JsonStr(const nlohmann::json& j, const char* key, const std::string& fallback)
+{
+	if (j.contains(key) && j[key].is_string()) { return j[key].get<std::string>(); }
+	return fallback;
+}
+
+int Events::JsonInt(const nlohmann::json& j, const char* key, int fallback)
+{
+	if (j.contains(key) && j[key].is_number_integer()) { return j[key].get<int>(); }
+	return fallback;
+}
+
+bool Events::JsonBool(const nlohmann::json& j, const char* key, bool fallback)
+{
+	if (j.contains(key) && j[key].is_boolean()) { return j[key].get<bool>(); }
+	return fallback;
+}
+
+std::string Events::FormatTier(const nlohmann::json& subObj)
+{
+	if (JsonBool(subObj, "is_prime")) { return "Prime"; }
+	std::string raw = JsonStr(subObj, "sub_tier", "1000");
+	if (raw == "2000") { return "Tier 2"; }
+	if (raw == "3000") { return "Tier 3"; }
+	return "Tier 1";
+}
+
+bool Events::HasVisibleText(std::string_view sv)
+{
+	return sv.find_first_not_of(" \t\r\n") != std::string_view::npos;
+}
+
+bool Events::PopulateMessageFragments(const nlohmann::json& event, ChatMessage& msg)
+{
+	if (!event.contains("message") || !event["message"].is_object()) { return false; }
+
+	const auto& m = event["message"];
+	std::string rawText = JsonStr(m, "text");
+	if (!HasVisibleText(rawText)) { return false; }
+
+	msg.text = rawText;
+
+	if (m.contains("fragments") && m["fragments"].is_array() && !m["fragments"].empty())
+	{
+		for (const auto& frag : m["fragments"])
+		{
+			std::string type = JsonStr(frag, "type", "text");
+			if (type == "emote" && frag.contains("emote") && frag["emote"].is_object())
+			{
+				std::string emoteId = JsonStr(frag["emote"], "id");
+				if (!emoteId.empty())
+				{
+					msg.segments.push_back(EmoteSegment{ emoteId });
+					continue;
+				}
+			}
+
+			std::string fragText = JsonStr(frag, "text");
+			if (!fragText.empty())
+			{
+				msg.segments.push_back(TextSegment{ fragText });
+			}
+		}
+	}
+	else
+	{
+		msg.segments.push_back(TextSegment{ rawText });
+	}
+
+	return !msg.segments.empty();
 }

@@ -172,7 +172,6 @@ public:
 
 	static bool showOnboarding;
 private:
-	static constexpr size_t MaxChatHistory = 200;
 
 	static asio::awaitable<void> ConnectToRelay();
 	static asio::awaitable<void> RelayWriteLoop();
@@ -180,6 +179,8 @@ private:
 
 	static ImFont* LoadFontWithFallbacks(ImGuiIO& io, const char* primaryPath, float sizePx);
 
+	static void RenderChat();
+	static void RenderQueueWindow();
 	static void RenderSettingsWindow();
 	static void DrawUsername(const ChatMessage& msg);
 	static void DrawMessage(const ChatMessage& msg);
@@ -198,6 +199,8 @@ private:
 	static std::string NormalizeForSpamCheck(std::string_view input);
 	static awaitable<void> WriteLoop();
 	static ImVec4 HexToImvec4(const std::string& hex);
+
+	static constexpr size_t MaxChatHistory = 200;
 
 	static bool isRunning;
 	static bool showSettings;

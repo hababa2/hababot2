@@ -422,7 +422,7 @@ bool Commands::UpsertCustomCommand(const std::string& rawCmd, const std::string&
 	CustomCommand customCmd{ responseTemplate, perm };
 	Config::data.customCommands[cmd] = customCmd;
 	BindCustomCommand(cmd, customCmd);
-	Config::Save("config.json");
+	Config::Save();
 	return true;
 }
 

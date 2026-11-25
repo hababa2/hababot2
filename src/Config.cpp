@@ -79,6 +79,19 @@ bool Config::Load(const std::string& filepath)
 					data.window.bottom = w.value("bottom", data.window.bottom);
 					data.window.showCmd = w.value("showCmd", data.window.showCmd);
 					data.window.hasSavedPlacement = true;
+
+					data.window.queuePanelWidth = w.value("queuePanelWidth", data.window.queuePanelWidth);
+					data.window.detachQueueWindow = w.value("detachQueueWindow", false);
+
+					if (w.contains("queueWinX") && w.contains("queueWinY") &&
+						w.contains("queueWinW") && w.contains("queueWinH"))
+					{
+						data.window.queueWinX = w.value("queueWinX", data.window.queueWinX);
+						data.window.queueWinY = w.value("queueWinY", data.window.queueWinY);
+						data.window.queueWinW = std::max(220, w.value("queueWinW", data.window.queueWinW));
+						data.window.queueWinH = std::max(200, w.value("queueWinH", data.window.queueWinH));
+						data.window.hasSavedQueueBounds = true;
+					}
 				}
 
 				if (j.contains("oauth") && j["oauth"].is_object())
@@ -152,12 +165,22 @@ void Config::Save(const std::string& filepath)
 	if (data.window.hasSavedPlacement)
 	{
 		j["window"] = {
+			{ "showCmd", data.window.showCmd },
 			{ "left", data.window.left },
 			{ "top", data.window.top },
 			{ "right", data.window.right },
 			{ "bottom", data.window.bottom },
-			{ "showCmd", data.window.showCmd }
+			{ "queuePanelWidth", data.window.queuePanelWidth },
+			{ "detachQueueWindow", data.window.detachQueueWindow }
 		};
+
+		if (data.window.hasSavedQueueBounds)
+		{
+			j["window"]["queueWinX"] = data.window.queueWinX;
+			j["window"]["queueWinY"] = data.window.queueWinY;
+			j["window"]["queueWinW"] = data.window.queueWinW;
+			j["window"]["queueWinH"] = data.window.queueWinH;
+		}
 	}
 
 	if (!data.oauthAccessToken.empty())
@@ -318,7 +341,7 @@ void Config::OnboardingPopup()
 				[](const std::string& s) { return s.empty(); }), folders.end());
 
 			Config::data.setupComplete = true;
-			Config::Save("config.json");
+			Config::Save();
 			SongLibrary::Initialize();
 			ImGui::CloseCurrentPopup();
 		}
@@ -328,7 +351,7 @@ void Config::OnboardingPopup()
 			ImGui::SameLine();
 			if (ImGui::Button("Cancel", ImVec2(100, 0)))
 			{
-				Config::Load("config.json");
+				Config::Load();
 				ImGui::CloseCurrentPopup();
 			}
 		}

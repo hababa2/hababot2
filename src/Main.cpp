@@ -13,7 +13,7 @@ namespace asio = boost::asio;
 
 int main()
 {
-	TwitchBot::showOnboarding = !Config::Load("config.json");
+	TwitchBot::showOnboarding = !Config::Load();
 
 	if (!Window::Initialize()) { return 1; }
 
@@ -26,6 +26,11 @@ int main()
 	asio::co_spawn(ioc, TwitchBot::Run(), asio::detached);
 	asio::co_spawn(ioc, Events::Run(), asio::detached);
 	std::thread networkThread([&ioc]() { ioc.run(); });
+
+	Window::SetRenderCallback([]() {
+		TwitchBot::Render();
+		Window::Render();
+	});
 
 	while (Window::Update())
 	{

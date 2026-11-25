@@ -89,15 +89,15 @@ asio::awaitable<void> TwitchBot::ConnectToRelay()
 
 			relayWs->set_option(boost::beast::websocket::stream_base::decorator(
 				[](boost::beast::websocket::request_type& req) {
-					req.set(boost::beast::http::field::user_agent, "Hababot-Desktop-Client/1.0");
-				}
+				req.set(boost::beast::http::field::user_agent, "Hababot-Desktop-Client/1.0");
+			}
 			));
 
 			relayWs->set_option(boost::beast::websocket::stream_base::timeout{
 				std::chrono::seconds(30),
 				std::chrono::seconds(45),
 				true
-			});
+				});
 
 			co_await relayWs->next_layer().async_handshake(asio::ssl::stream_base::client, use_awaitable);
 			co_await relayWs->async_handshake("songs.hababot2.com", "/ws-relay", use_awaitable);
@@ -433,7 +433,6 @@ awaitable<void> TwitchBot::Run()
 
 void TwitchBot::Render()
 {
-	bool newMessage = false;
 	while (!chatQueue.Empty())
 	{
 		if (std::optional<ChatMessage> msgOpt = chatQueue.TryPop())
@@ -445,7 +444,6 @@ void TwitchBot::Render()
 				if (msg.text.starts_with('!')) { Commands::RunCommand(msg); }
 
 				chatHistory.push_back(std::move(msg));
-				newMessage = true;
 
 				if (chatHistory.size() > MaxChatHistory)
 				{
@@ -484,8 +482,10 @@ void TwitchBot::Render()
 
 	ImGui::NewFrame();
 
-	ImGui::SetNextWindowPos(ImVec2(0, 0));
-	ImGui::SetNextWindowSize(ImGui::GetIO().DisplaySize);
+	ImGuiViewport* viewport = ImGui::GetMainViewport();
+	ImGui::SetNextWindowPos(viewport->Pos);
+	ImGui::SetNextWindowSize(viewport->Size);
+	ImGui::SetNextWindowViewport(viewport->ID);
 
 	ImGuiWindowFlags windowFlags = ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse |
 		ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoBringToFrontOnFocus;
@@ -608,13 +608,76 @@ void TwitchBot::Render()
 		ImGui::Separator();
 	}
 
-	constexpr float songQueueWidth = 300.0f;
-	constexpr float columnGap = 8.0f;
-	float availWidth = ImGui::GetContentRegionAvail().x;
-	float chatWidth = std::max(150.0f, availWidth - songQueueWidth - columnGap);
+	if (!Config::data.window.detachQueueWindow)
+	{
+		constexpr float splitterWidth = 6.0f;
+		constexpr float minChatWidth = 240.0f;
+		constexpr float minQueueWidth = 220.0f;
 
-	ImGui::BeginChild("ChatRegion", ImVec2(chatWidth, 0), false, ImGuiWindowFlags_NoScrollbar);
+		float availWidth = ImGui::GetContentRegionAvail().x;
+		float availHeight = ImGui::GetContentRegionAvail().y;
 
+		float maxQueueWidth = std::max(minQueueWidth, availWidth - minChatWidth - splitterWidth);
+		float& queueW = Config::data.window.queuePanelWidth;
+		queueW = std::clamp(queueW, minQueueWidth, maxQueueWidth);
+
+		float chatW = availWidth - queueW - splitterWidth;
+
+		ImGui::BeginChild("ChatPane", ImVec2(chatW, availHeight), false);
+		RenderChat();
+		ImGui::EndChild();
+
+		ImGui::SameLine(0.0f, 0.0f);
+		ImGui::InvisibleButton("##QueueSplitter", ImVec2(splitterWidth, availHeight));
+
+		bool hovered = ImGui::IsItemHovered();
+		bool active = ImGui::IsItemActive();
+
+		if (hovered || active)
+		{
+			ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeEW);
+		}
+		if (active)
+		{
+			queueW = std::clamp(queueW - ImGui::GetIO().MouseDelta.x, minQueueWidth, maxQueueWidth);
+		}
+		if (ImGui::IsItemDeactivatedAfterEdit())
+		{
+			Config::Save();
+		}
+
+		ImVec2 pMin = ImGui::GetItemRectMin();
+		ImVec2 pMax = ImGui::GetItemRectMax();
+		float lineX = (pMin.x + pMax.x) * 0.5f;
+		ImU32 lineCol = active ? ImGui::GetColorU32(ImGuiCol_SeparatorActive)
+			: hovered ? ImGui::GetColorU32(ImGuiCol_SeparatorHovered)
+			: ImGui::GetColorU32(ImGuiCol_Separator);
+		ImGui::GetWindowDrawList()->AddLine(ImVec2(lineX, pMin.y), ImVec2(lineX, pMax.y), lineCol, active ? 2.0f : 1.0f);
+
+		ImGui::SameLine(0.0f, 0.0f);
+		ImGui::BeginChild("QueuePane", ImVec2(queueW, availHeight), false);
+		SongQueue::RenderSongQueue();
+		ImGui::EndChild();
+	}
+	else
+	{
+		ImGui::BeginChild("ChatPane", ImGui::GetContentRegionAvail(), false);
+		RenderChat();
+		ImGui::EndChild();
+	}
+	ImGui::End();
+
+	if (Config::data.window.detachQueueWindow)
+	{
+		RenderQueueWindow();
+	}
+
+	ImGui::Render();
+}
+
+void TwitchBot::RenderChat()
+{
+	ImDrawList* drawList = ImGui::GetWindowDrawList();
 	float maxWrapX = ImGui::GetWindowPos().x + ImGui::GetWindowContentRegionMax().x;
 
 	for (const ChatMessage& msg : chatHistory)
@@ -683,19 +746,119 @@ void TwitchBot::Render()
 		drawList->ChannelsMerge();
 	}
 
-	if (ImGui::GetScrollY() >= ImGui::GetScrollMaxY() || newMessage)
+	if (ImGui::GetScrollY() >= ImGui::GetScrollMaxY())
 	{
 		ImGui::SetScrollHereY(1.0f);
 	}
+}
 
-	ImGui::EndChild();
+void TwitchBot::RenderQueueWindow()
+{
+	ImGuiWindowClass queueClass;
+	queueClass.ViewportFlagsOverrideSet = ImGuiViewportFlags_NoAutoMerge | ImGuiViewportFlags_TopMost;
+	queueClass.ViewportFlagsOverrideClear = ImGuiViewportFlags_NoTaskBarIcon;
+	ImGui::SetNextWindowClass(&queueClass);
 
-	ImGui::SameLine(0.0f, columnGap);
+	if (Config::data.window.hasSavedQueueBounds)
+	{
+		ImGui::SetNextWindowPos(
+			ImVec2(static_cast<float>(Config::data.window.queueWinX),
+				static_cast<float>(Config::data.window.queueWinY)),
+			ImGuiCond_Appearing
+		);
+		ImGui::SetNextWindowSize(
+			ImVec2(static_cast<float>(Config::data.window.queueWinW),
+				static_cast<float>(Config::data.window.queueWinH)),
+			ImGuiCond_Appearing
+		);
+	}
+	else
+	{
+		ImGuiViewport* mainVp = ImGui::GetMainViewport();
+		ImGui::SetNextWindowPos(ImVec2(mainVp->Pos.x + mainVp->Size.x + 12.0f, mainVp->Pos.y), ImGuiCond_Appearing);
+		ImGui::SetNextWindowSize(ImVec2(380.0f, mainVp->Size.y), ImGuiCond_Appearing);
+	}
 
-	SongQueue::RenderSongQueue();
+	ImGui::PushFont(boldFont);
+	ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8.0f, 8.0f));
+	ImGui::PushStyleColor(ImGuiCol_TitleBgActive, ImVec4(0.788235294117647f, 0.62745098039f, 0.86274509803f, 1.0f));
+	ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.1f, 0.1f, 0.1f, 0.75f));
 
+	ImGuiWindowFlags queueWinFlags = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse;
+
+	if (ImGui::Begin("Song Queue", nullptr, queueWinFlags))
+	{
+		Window::EnableNativeTitleBarDrag(ImGui::GetWindowViewport()->PlatformHandle);
+
+		constexpr float titleBarHeight = 32.0f;
+		constexpr float btnWidth = 40.0f;
+
+		ImVec2 winPos = ImGui::GetWindowPos();
+		float winWidth = ImGui::GetWindowWidth();
+
+		ImDrawList* drawList = ImGui::GetWindowDrawList();
+		drawList->AddRectFilled(
+			winPos,
+			ImVec2(winPos.x + winWidth, winPos.y + titleBarHeight),
+			ImGui::GetColorU32(ImGuiCol_TitleBgActive)
+		);
+
+		float textY = (titleBarHeight - ImGui::GetTextLineHeight()) * 0.5f;
+		ImGui::SetCursorPos(ImVec2(12.0f, textY));
+		ImGui::TextUnformatted("Song Queue");
+
+		ImGui::PushFont(nullptr, 22.0f);
+		ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
+		ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(1.0f, 1.0f, 1.0f, 0.12f));
+		ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(1.0f, 1.0f, 1.0f, 0.20f));
+		ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 0.0f);
+		ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0.0f, 0.0f));
+
+		ImGui::SetCursorPos(ImVec2(winWidth - btnWidth * 2.0f, 0.0f));
+		if (ImGui::Button("\xE2\x88\x92##MinimizeQueue", ImVec2(btnWidth, titleBarHeight)))
+		{
+			Window::MinimizeWindow(ImGui::GetWindowViewport()->PlatformHandle);
+		}
+
+		ImGui::SetCursorPos(ImVec2(winWidth - btnWidth, 0.0f));
+		if (ImGui::Button("\xE2\x86\xA9##DockQueue", ImVec2(btnWidth, titleBarHeight)))
+		{
+			ImVec2 pos = ImGui::GetWindowPos();
+			ImVec2 size = ImGui::GetWindowSize();
+			Config::data.window.queueWinX = static_cast<int>(pos.x);
+			Config::data.window.queueWinY = static_cast<int>(pos.y);
+			Config::data.window.queueWinW = static_cast<int>(size.x);
+			Config::data.window.queueWinH = static_cast<int>(size.y);
+			Config::data.window.hasSavedQueueBounds = true;
+
+			Config::data.window.detachQueueWindow = false;
+			Config::Save();
+		}
+		if (ImGui::IsItemHovered())
+		{
+			ImGui::PushFont(TwitchBot::headerFont);
+			ImGui::SetTooltip("Dock back into main window");
+			ImGui::PopFont();
+		}
+
+		ImGui::PopStyleVar(2);
+		ImGui::PopStyleColor(3);
+		ImGui::PopFont();
+
+		ImGui::SetCursorPos(ImVec2(ImGui::GetStyle().WindowPadding.x, titleBarHeight + ImGui::GetStyle().WindowPadding.y));
+		ImGui::PopStyleColor(2);
+		ImGui::PopStyleVar();
+		ImGui::PopFont();
+
+		SongQueue::RenderSongQueue();
+	}
+	else
+	{
+		ImGui::PopStyleColor(2);
+		ImGui::PopStyleVar();
+		ImGui::PopFont();
+	}
 	ImGui::End();
-	ImGui::Render();
 }
 
 void TwitchBot::RenderSettingsWindow()
@@ -712,7 +875,7 @@ void TwitchBot::RenderSettingsWindow()
 
 	if (ImGui::BeginPopupModal("Settings", &showSettings, ImGuiWindowFlags_AlwaysAutoResize))
 	{
-		constexpr float minTopY = 32.0f;
+		float minTopY = ImGui::GetMainViewport()->Pos.y + 32.0f;
 		ImVec2 pos = ImGui::GetWindowPos();
 		if (pos.y < minTopY) { ImGui::SetWindowPos(ImVec2(pos.x, minTopY)); }
 
@@ -763,7 +926,7 @@ void TwitchBot::RenderSettingsWindow()
 					folders.erase(std::remove_if(folders.begin(), folders.end(),
 						[](const std::string& s) { return s.empty(); }), folders.end());
 
-					Config::Save("config.json");
+					Config::Save();
 					SongLibrary::Initialize();
 				}
 
@@ -771,7 +934,7 @@ void TwitchBot::RenderSettingsWindow()
 
 				if (ImGui::Button("Revert Changes", ImVec2(130.0f, 32.0f)))
 				{
-					Config::Load("config.json");
+					Config::Load();
 				}
 
 				ImGui::EndTabItem();

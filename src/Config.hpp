@@ -15,6 +15,15 @@ struct WindowConfig
 	int bottom = 800;
 	int showCmd = 1;
 	bool hasSavedPlacement = false;
+
+	float queuePanelWidth = 340.0f;
+	bool detachQueueWindow = false;
+
+	int queueWinX = 100;
+	int queueWinY = 100;
+	int queueWinW = 380;
+	int queueWinH = 600;
+	bool hasSavedQueueBounds = false;
 };
 
 struct EarlyBirdStats

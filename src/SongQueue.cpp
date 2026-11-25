@@ -66,7 +66,7 @@ void SongQueue::SaveToConfig()
 		}
 	}
 
-	Config::Save("config.json");
+	Config::Save();
 }
 
 std::string SongQueue::FormatDuration(int64_t ms)
@@ -175,14 +175,56 @@ void SongQueue::RenderSongQueue()
 		ImGui::Text("Song Queue (%zu)", songQueue.size());
 		ImGui::PopFont();
 
-		if (totalMs > 0)
+		std::string totalText = (totalMs > 0)
+			? ("Total: " + FormatDuration(totalMs) + (unknownCount > 0 ? "+" : ""))
+			: "";
+
+		float rightOffset = 0.0f;
+		constexpr float popBtnSize = 24.0f;
+		if (!Config::data.window.detachQueueWindow)
 		{
-			std::string totalText = "Total: " + FormatDuration(totalMs) + (unknownCount > 0 ? "+" : "");
-			float textWidth = ImGui::CalcTextSize(totalText.c_str()).x;
-			ImGui::SameLine(ImGui::GetContentRegionAvail().x + ImGui::GetCursorPosX() - textWidth);
-			ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.68f, 0.68f, 0.72f, 1.0f));
-			ImGui::TextUnformatted(totalText.c_str());
-			ImGui::PopStyleColor();
+			rightOffset += popBtnSize;
+		}
+		if (!totalText.empty())
+		{
+			rightOffset += ImGui::CalcTextSize(totalText.c_str()).x + (rightOffset > 0.0f ? 8.0f : 0.0f);
+		}
+
+		if (rightOffset > 0.0f)
+		{
+			ImGui::SameLine(ImGui::GetContentRegionAvail().x + ImGui::GetCursorPosX() - rightOffset);
+
+			if (!totalText.empty())
+			{
+				ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.68f, 0.68f, 0.72f, 1.0f));
+				ImGui::TextUnformatted(totalText.c_str());
+				ImGui::PopStyleColor();
+			}
+
+			if (!Config::data.window.detachQueueWindow)
+			{
+				if (!totalText.empty()) { ImGui::SameLine(0.0f, 8.0f); }
+
+				ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
+				ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(1.0f, 1.0f, 1.0f, 0.14f));
+				ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(1.0f, 1.0f, 1.0f, 0.22f));
+				ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0.0f, 0.0f));
+
+				if (ImGui::Button("\xE2\x86\x97##PopOutQueue", ImVec2(popBtnSize, popBtnSize)))
+				{
+					Config::data.window.detachQueueWindow = true;
+					Config::Save("config.json");
+				}
+				if (ImGui::IsItemHovered())
+				{
+					ImGui::PushFont(TwitchBot::headerFont);
+					ImGui::SetTooltip("Pop out Song Queue");
+					ImGui::PopFont();
+				}
+
+				ImGui::PopStyleVar();
+				ImGui::PopStyleColor(3);
+			}
 		}
 
 		ImGui::Separator();

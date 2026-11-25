@@ -28,7 +28,6 @@
 #pragma comment(lib, "d3d11.lib")
 #pragma comment(lib, "ole32.lib")
 
-std::thread Window::windowThread;
 std::mutex Window::initMutex;
 std::condition_variable Window::initCondition;
 bool Window::windowInitialized;
@@ -63,10 +62,15 @@ bool Window::resizing;
 bool Window::focused;
 bool Window::minimised;
 
+std::function<void()> Window::renderCallback;
+bool Window::inModalRender = false;
+
 ID3D11Device* Window::pd3dDevice;
 ID3D11DeviceContext* Window::pd3dDeviceContext;
 IDXGISwapChain* Window::pSwapChain;
 ID3D11RenderTargetView* Window::mainRenderTargetView;
+
+constexpr UINT_PTR ResizeTimerId = 1;
 
 bool Window::Initialize()
 {
@@ -82,7 +86,7 @@ bool Window::Initialize()
 	sizeNWSE = LoadCursorW(nullptr, IDC_SIZENWSE);
 	currentCursor = arrow;
 
-	style = WS_POPUP | WS_VISIBLE;
+	style = WS_POPUP | WS_VISIBLE | WS_MINIMIZEBOX;
 
 	screenWidth = GetSystemMetrics(SM_CXSCREEN);
 	screenHeight = GetSystemMetrics(SM_CYSCREEN);
@@ -93,19 +97,52 @@ bool Window::Initialize()
 	EnumDisplaySettings(NULL, ENUM_CURRENT_SETTINGS, &monitorInfo);
 	targetFrametime = 1.0 / monitorInfo.dmDisplayFrequency;
 
-	running = true;
+	WNDCLASSEXW wc{};
+	wc.cbSize = sizeof(WNDCLASSEXW);
+	wc.style = CS_OWNDC | CS_HREDRAW | CS_VREDRAW;
+	wc.lpfnWndProc = WindowsMessageProc;
+	wc.hInstance = instance;
+	wc.hIcon = LoadIcon(instance, MAKEINTRESOURCE(IDI_ICON1));
+	wc.hCursor = nullptr;
+	wc.hbrBackground = nullptr;
+	wc.lpszMenuName = L"Hababot2";
+	wc.lpszClassName = L"Hababot2";
+	wc.hIconSm = LoadIconW(instance, MAKEINTRESOURCE(IDI_ICON1));
 
-	windowThread = std::thread(WindowThreadLoop);
-	std::unique_lock<std::mutex> lock(initMutex);
-	initCondition.wait(lock, [&] { return windowInitialized; });
+	RegisterClassExW(&wc);
 
-	if (!windowCreationSuccess)
+	hWnd = CreateWindowExW(WS_EX_APPWINDOW | WS_EX_TOPMOST, L"Hababot2", L"Hababot2", style,
+		100, 100, 600, 600, nullptr, nullptr, instance, nullptr);
+
+	if (!hWnd)
 	{
 		running = false;
-		if (windowThread.joinable()) { windowThread.join(); }
 		return false;
 	}
 
+	MARGINS margins = { -1, -1, -1, -1 };
+	DwmExtendFrameIntoClientArea(hWnd, &margins);
+
+	if (!LoadWindowPlacement())
+	{
+		ShowWindow(hWnd, SW_SHOW);
+	}
+	UpdateWindow(hWnd);
+
+	IMGUI_CHECKVERSION();
+	ImGui::CreateContext();
+	ImGuiIO& io = ImGui::GetIO();
+	io.IniFilename = nullptr;
+	io.LogFilename = nullptr;
+	io.ConfigWindowsMoveFromTitleBarOnly = true;
+	io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard | ImGuiConfigFlags_ViewportsEnable;
+	ImGui::StyleColorsDark();
+
+	ImGui_ImplWin32_Init(hWnd);
+	CreateDeviceD3D();
+	ImGui_ImplDX11_Init(pd3dDevice, pd3dDeviceContext);
+
+	running = true;
 	return true;
 }
 
@@ -115,15 +152,30 @@ void Window::Shutdown()
 	ImGui_ImplWin32_Shutdown();
 	ImGui::DestroyContext();
 
-	if (hWnd && running) { PostMessageW(hWnd, WM_CLOSE, 0, 0); }
-	if (windowThread.joinable()) { windowThread.join(); }
+	if (hWnd)
+	{
+		DestroyWindow(hWnd);
+		hWnd = nullptr;
+	}
 
 	UnregisterClassW(L"Hababot2", instance);
-	hWnd = nullptr;
 }
 
 bool Window::Update()
 {
+	MSG msg;
+	while (PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE))
+	{
+		TranslateMessage(&msg);
+		DispatchMessageW(&msg);
+		if (msg.message == WM_QUIT)
+		{
+			running = false;
+		}
+	}
+
+	if (!running) { return false; }
+
 	ImGui_ImplDX11_NewFrame();
 	ImGui_ImplWin32_NewFrame();
 
@@ -139,76 +191,22 @@ void Window::Render()
 		pd3dDeviceContext->ClearRenderTargetView(mainRenderTargetView, clearColorWithAlpha);
 
 		ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
+		ImGui::UpdatePlatformWindows();
+		ImGui::RenderPlatformWindowsDefault();
 
-		pSwapChain->Present(1, 0);
+		pSwapChain->Present(resizing ? 0 : 1, 0);
 	}
 }
 
-void Window::WindowThreadLoop()
+void Window::RenderModalFrame()
 {
-	WNDCLASSEXW wc{};
-	wc.cbSize = sizeof(WNDCLASSEXW);
-	wc.style = CS_OWNDC | CS_HREDRAW | CS_VREDRAW;
-	wc.lpfnWndProc = WindowsMessageProc;
-	wc.cbClsExtra = 0;
-	wc.cbWndExtra = 0;
-	wc.hInstance = instance;
-	wc.hIcon = LoadIcon(instance, MAKEINTRESOURCE(IDI_ICON1));
-	wc.hCursor = nullptr;
-	wc.hbrBackground = nullptr;
-	wc.lpszMenuName = L"Hababot2";
-	wc.lpszClassName = L"Hababot2";
-	wc.hIconSm = LoadIconW(instance, MAKEINTRESOURCE(IDI_ICON1));
+	if (inModalRender || !running || !renderCallback || !pd3dDevice) { return; }
 
-	RegisterClassExW(&wc);
-
-	hWnd = CreateWindowExW(WS_EX_APPWINDOW | WS_EX_TOPMOST, L"Hababot2", L"Hababot2", style,
-		100, 100, 600, 600, nullptr, nullptr, instance, nullptr);
-
-	if (hWnd)
-	{
-		MARGINS margins = { -1, -1, -1, -1 };
-		DwmExtendFrameIntoClientArea(hWnd, &margins);
-
-		if (!LoadWindowPlacement())
-		{
-			ShowWindow(hWnd, SW_SHOW);
-		}
-
-		UpdateWindow(hWnd);
-
-		IMGUI_CHECKVERSION();
-		ImGui::CreateContext();
-		ImGuiIO& io = ImGui::GetIO();
-		io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
-		ImGui::StyleColorsDark();
-
-		ImGui_ImplWin32_Init(hWnd);
-		CreateDeviceD3D();
-		ImGui_ImplDX11_Init(pd3dDevice, pd3dDeviceContext);
-	}
-
-	{
-		std::lock_guard<std::mutex> lock(initMutex);
-		windowCreationSuccess = (hWnd != nullptr);
-		windowInitialized = true;
-	}
-	initCondition.notify_one();
-
-	if (!windowCreationSuccess) { return; }
-
-	MSG msg;
-	int result;
-
-	while (running && (result = GetMessageW(&msg, nullptr, 0, 0)) != 0)
-	{
-		if (result == -1) { break; }
-
-		TranslateMessage(&msg);
-		DispatchMessageW(&msg);
-	}
-
-	running = false;
+	inModalRender = true;
+	ImGui_ImplDX11_NewFrame();
+	ImGui_ImplWin32_NewFrame();
+	renderCallback();
+	inModalRender = false;
 }
 
 void Window::CreateDeviceD3D()
@@ -279,6 +277,8 @@ void Window::SaveWindowPlacement()
 
 bool Window::LoadWindowPlacement()
 {
+	if (!Config::data.window.hasSavedPlacement) { return false; }
+
 	WINDOWPLACEMENT wp{};
 	wp.length = sizeof(WINDOWPLACEMENT);
 	GetWindowPlacement(hWnd, &wp);
@@ -295,6 +295,11 @@ bool Window::LoadWindowPlacement()
 	}
 
 	return SetWindowPlacement(hWnd, &wp) != 0;
+}
+
+void Window::SetRenderCallback(std::function<void()> callback)
+{
+	renderCallback = std::move(callback);
 }
 
 std::string Window::OpenFileBrowser()
@@ -420,31 +425,21 @@ LRESULT __stdcall Window::WindowsMessageProc(HWND hWnd, UINT msg, WPARAM wParam,
 	case WM_ERASEBKGND: {} return 1;
 	case WM_ENTERSIZEMOVE: {
 		resizing = true;
+		SetTimer(hWnd, ResizeTimerId, 16, nullptr);
 	} return 0;
 	case WM_EXITSIZEMOVE:
 	{
+		KillTimer(hWnd, ResizeTimerId);
 		resizing = false;
-
-		if (pSwapChain != nullptr)
-		{
-			if (mainRenderTargetView) { mainRenderTargetView->Release(); mainRenderTargetView = nullptr; }
-
-			RECT rc;
-			GetClientRect(hWnd, &rc);
-			UINT width = rc.right - rc.left;
-			UINT height = rc.bottom - rc.top;
-
-			pSwapChain->ResizeBuffers(0, width, height, DXGI_FORMAT_UNKNOWN, 0);
-
-			ID3D11Texture2D* pBackBuffer = nullptr;
-			pSwapChain->GetBuffer(0, IID_PPV_ARGS(&pBackBuffer));
-			if (pBackBuffer)
-			{
-				pd3dDevice->CreateRenderTargetView(pBackBuffer, nullptr, &mainRenderTargetView);
-				pBackBuffer->Release();
-			}
-		}
+		SaveWindowPlacement();
 	} return 0;
+	case WM_TIMER: {
+		if (wParam == ResizeTimerId)
+		{
+			RenderModalFrame();
+			return 0;
+		}
+	} break;
 	case WM_SIZE: {
 		switch (wParam)
 		{
@@ -458,7 +453,10 @@ LRESULT __stdcall Window::WindowsMessageProc(HWND hWnd, UINT msg, WPARAM wParam,
 		} break;
 		}
 
-		if (pSwapChain != nullptr)
+		UINT width = static_cast<UINT>(LOWORD(lParam));
+		UINT height = static_cast<UINT>(HIWORD(lParam));
+
+		if (pSwapChain != nullptr && width > 0 && height > 0)
 		{
 			if (mainRenderTargetView)
 			{
@@ -466,8 +464,6 @@ LRESULT __stdcall Window::WindowsMessageProc(HWND hWnd, UINT msg, WPARAM wParam,
 				mainRenderTargetView = nullptr;
 			}
 
-			UINT width = (UINT)LOWORD(lParam);
-			UINT height = (UINT)HIWORD(lParam);
 			pSwapChain->ResizeBuffers(0, width, height, DXGI_FORMAT_UNKNOWN, 0);
 
 			ID3D11Texture2D* pBackBuffer = nullptr;
@@ -479,12 +475,18 @@ LRESULT __stdcall Window::WindowsMessageProc(HWND hWnd, UINT msg, WPARAM wParam,
 			}
 		}
 
-		SaveWindowPlacement();
+		if (resizing)
+		{
+			RenderModalFrame();
+		}
 	} return 0;
 	case WM_SIZING: {
 	} return 1;
 	case WM_MOVE: {
-		SaveWindowPlacement();
+		if (!resizing)
+		{
+			SaveWindowPlacement();
+		}
 	} return 0;
 	case WM_KEYDOWN: {
 	} return 0;
@@ -558,4 +560,128 @@ LRESULT __stdcall Window::WindowsMessageProc(HWND hWnd, UINT msg, WPARAM wParam,
 	}
 
 	return DefWindowProcW(hWnd, msg, wParam, lParam);
+}
+
+namespace
+{
+	HWND hookedQueueHwnd = nullptr;
+	WNDPROC origQueueWndProc = nullptr;
+
+	LRESULT CALLBACK QueueViewportWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
+	{
+		switch (msg)
+		{
+		case WM_ERASEBKGND: {} return 1;
+		case WM_NCDESTROY: {
+			KillTimer(hwnd, ResizeTimerId);
+
+			WNDPROC prev = origQueueWndProc;
+			if (hwnd == hookedQueueHwnd)
+			{
+				SetWindowLongPtrW(hwnd, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(prev));
+				hookedQueueHwnd = nullptr;
+				origQueueWndProc = nullptr;
+			}
+			return prev ? CallWindowProcW(prev, hwnd, msg, wParam, lParam)
+				: DefWindowProcW(hwnd, msg, wParam, lParam);
+		} break;
+		case WM_ENTERSIZEMOVE: {
+			Window::resizing = true;
+			SetTimer(hwnd, ResizeTimerId, 16, nullptr);
+		} break;
+		case WM_EXITSIZEMOVE: {
+			KillTimer(hwnd, ResizeTimerId);
+			Window::resizing = false;
+
+			RECT rc{};
+			if (GetWindowRect(hwnd, &rc))
+			{
+				Config::data.window.queueWinX = rc.left;
+				Config::data.window.queueWinY = rc.top;
+				Config::data.window.queueWinW = rc.right - rc.left;
+				Config::data.window.queueWinH = rc.bottom - rc.top;
+				Config::data.window.hasSavedQueueBounds = true;
+				Config::Save();
+			}
+		} break;
+		case WM_TIMER: {
+			if (wParam == ResizeTimerId)
+			{
+				Window::RenderModalFrame();
+				return 0;
+			}
+		} break;
+		case WM_SIZE: {
+			LRESULT res = CallWindowProcW(origQueueWndProc, hwnd, msg, wParam, lParam);
+			if (wParam != SIZE_MINIMIZED)
+			{
+				Window::RenderModalFrame();
+			}
+			return res;
+		}
+		case WM_NCHITTEST: {
+			LRESULT baseHit = CallWindowProcW(origQueueWndProc, hwnd, msg, wParam, lParam);
+			if (baseHit == HTTRANSPARENT) { return HTTRANSPARENT; }
+
+			POINT pt = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
+			ScreenToClient(hwnd, &pt);
+
+			RECT rc;
+			GetClientRect(hwnd, &rc);
+
+			constexpr int border = 8;
+			constexpr int titleBarHeight = 32;
+			constexpr int headerBtnsWidth = 80;
+
+			if (pt.x < border && pt.y < border) { return HTTOPLEFT; }
+			if (pt.x > rc.right - border && pt.y < border) { return HTTOPRIGHT; }
+			if (pt.x < border && pt.y > rc.bottom - border) { return HTBOTTOMLEFT; }
+			if (pt.x > rc.right - border && pt.y > rc.bottom - border) { return HTBOTTOMRIGHT; }
+			if (pt.x < border) { return HTLEFT; }
+			if (pt.x > rc.right - border) { return HTRIGHT; }
+			if (pt.y < border) { return HTTOP; }
+			if (pt.y > rc.bottom - border) { return HTBOTTOM; }
+
+			if (pt.y >= 0 && pt.y < titleBarHeight && pt.x < rc.right - headerBtnsWidth)
+			{
+				return HTCAPTION;
+			}
+		} return HTCLIENT;
+		}
+
+		return CallWindowProcW(origQueueWndProc, hwnd, msg, wParam, lParam);
+	}
+}
+
+void Window::EnableNativeTitleBarDrag(void* platformHandle)
+{
+	HWND targetHwnd = static_cast<HWND>(platformHandle);
+	if (!targetHwnd || targetHwnd == hWnd || targetHwnd == hookedQueueHwnd)
+	{
+		return;
+	}
+
+	if (hookedQueueHwnd && origQueueWndProc && IsWindow(hookedQueueHwnd))
+	{
+		SetWindowLongPtrW(hookedQueueHwnd, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(origQueueWndProc));
+	}
+
+	LONG_PTR winStyle = GetWindowLongPtrW(targetHwnd, GWL_STYLE);
+	if ((winStyle & WS_MINIMIZEBOX) == 0)
+	{
+		SetWindowLongPtrW(targetHwnd, GWL_STYLE, winStyle | WS_MINIMIZEBOX);
+	}
+
+	origQueueWndProc = reinterpret_cast<WNDPROC>(
+		SetWindowLongPtrW(targetHwnd, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(QueueViewportWndProc)));
+	hookedQueueHwnd = targetHwnd;
+}
+
+void Window::MinimizeWindow(void* platformHandle)
+{
+	HWND targetHwnd = static_cast<HWND>(platformHandle);
+	if (targetHwnd)
+	{
+		ShowWindow(targetHwnd, SW_MINIMIZE);
+	}
 }

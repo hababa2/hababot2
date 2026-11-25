@@ -2,6 +2,7 @@
 
 #include <thread>
 #include <mutex>
+#include <functional>
 #include <condition_variable>
 
 struct HINSTANCE__;
@@ -17,15 +18,19 @@ class Window
 {
 public:
 	static bool Initialize();
+	static void Shutdown();
 	static bool Update();
 	static void Render();
-	static void Shutdown();
+	static void RenderModalFrame();
 
 	static void Close();
 	static void Minimize();
 	static bool Resizing();
 	static void SaveWindowPlacement();
 	static bool LoadWindowPlacement();
+	static void SetRenderCallback(std::function<void()> callback);
+	static void EnableNativeTitleBarDrag(void* platformHandle);
+	static void MinimizeWindow(void* platformHandle);
 
 	static std::string OpenFileBrowser();
 	static std::string OpenFolderBrowser();
@@ -33,12 +38,12 @@ public:
 	static ID3D11Device* GetDevice();
 	static ID3D11DeviceContext* GetContext();
 
+	static bool resizing;
+	
 private:
 	static void CreateDeviceD3D();
-	static void WindowThreadLoop();
 	static long long __stdcall WindowsMessageProc(HWND__* hWnd, unsigned int msg, unsigned long long wParam, long long lParam);
 
-	static std::thread windowThread;
 	static std::mutex initMutex;
 	static std::condition_variable initCondition;
 	static bool windowInitialized;
@@ -69,9 +74,11 @@ private:
 
 	static double targetFrametime;
 	static std::atomic<bool> running;
-	static bool resizing;
 	static bool focused;
 	static bool minimised;
+
+	static std::function<void()> renderCallback;
+	static bool inModalRender;
 
 	static ID3D11Device* pd3dDevice;
 	static ID3D11DeviceContext* pd3dDeviceContext;

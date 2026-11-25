@@ -8,11 +8,11 @@ A twitch bot, chat viewer, and song queue/request manager
 - [ ] Clickable links
 - [ ] Message Effects
 - [ ] Option for stay on top
-- [ ] Resizable queue window
+- [x] Resizable queue window
 - [x] An X to close the application
 - [x] Combine json config files
-- [ ] Sorting/filtering/search options in the website
-- [ ] Separate windows for chat and queue?
+- [x] Sorting/filtering/search options in the website
+- [x] Separate windows for chat and queue
 
 ## Known Bugs
 - [x] Song scanning can crash (known with rock band songs)

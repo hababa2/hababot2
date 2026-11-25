@@ -64,6 +64,8 @@ struct ConfigSettings
 	std::string oauthAccessToken;
 	std::unordered_map<std::string, EarlyBirdStats> earlyBirds;
 	QueueConfig queue;
+
+	std::string themeName = "Wisteria";
 };
 
 class Config

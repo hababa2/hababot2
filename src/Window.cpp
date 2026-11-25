@@ -3,6 +3,7 @@
 #include "Badges.hpp"
 #include "Emotes.hpp"
 #include "Config.hpp"
+#include "Theme.hpp"
 
 #include "../resource.h"
 
@@ -137,6 +138,7 @@ bool Window::Initialize()
 	io.ConfigWindowsMoveFromTitleBarOnly = true;
 	io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard | ImGuiConfigFlags_ViewportsEnable;
 	ImGui::StyleColorsDark();
+	Theme::Initialize(Config::data.themeName);
 
 	ImGui_ImplWin32_Init(hWnd);
 	CreateDeviceD3D();

@@ -9,6 +9,7 @@
 #include "SongLibrary.hpp"
 #include "Commands.hpp"
 #include "Window.hpp"
+#include "Theme.hpp"
 #include "Debug.hpp"
 
 #include "json.hpp"
@@ -492,10 +493,6 @@ void TwitchBot::Render()
 
 	ImGui::PushFont(boldFont);
 	ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8.0f, 8.0f));
-	ImGui::PushStyleColor(ImGuiCol_TitleBg, ImVec4(0.788235294117647f, 0.62745098039f, 0.86274509803f, 1.0f));
-	ImGui::PushStyleColor(ImGuiCol_TitleBgActive, ImVec4(0.788235294117647f, 0.62745098039f, 0.86274509803f, 1.0f));
-	ImGui::PushStyleColor(ImGuiCol_TitleBgCollapsed, ImVec4(0.788235294117647f, 0.62745098039f, 0.86274509803f, 1.0f));
-	ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.1f, 0.1f, 0.1f, 0.75f));
 
 	ImGui::Begin("Hababot2", nullptr, windowFlags);
 
@@ -512,6 +509,9 @@ void TwitchBot::Render()
 		ImVec2(winPos.x + winWidth, winPos.y + titleBarHeight),
 		ImGui::GetColorU32(ImGuiCol_TitleBgActive)
 	);
+
+	const ThemeData& t = Theme::Current();
+	ImGui::PushStyleColor(ImGuiCol_Text, t.titleBarText);
 
 	float textY = (titleBarHeight - ImGui::GetTextLineHeight()) * 0.5f;
 	ImGui::SetCursorPos(ImVec2(12.0f, textY));
@@ -534,7 +534,9 @@ void TwitchBot::Render()
 	if (ImGui::IsItemHovered())
 	{
 		ImGui::PushFont(TwitchBot::headerFont);
+		ImGui::PushStyleColor(ImGuiCol_Text, t.text);
 		ImGui::SetTooltip("Settings");
+		ImGui::PopStyleColor();
 		ImGui::PopFont();
 	}
 
@@ -545,8 +547,8 @@ void TwitchBot::Render()
 	}
 
 	ImGui::SetCursorPos(ImVec2(winWidth - btnWidth, 0.0f));
-	ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.85f, 0.20f, 0.20f, 0.90f));
-	ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.70f, 0.15f, 0.15f, 1.00f));
+	ImGui::PushStyleColor(ImGuiCol_ButtonHovered, t.closeHovered);
+	ImGui::PushStyleColor(ImGuiCol_ButtonActive, t.closeActive);
 
 	if (ImGui::Button("\xC3\x97##Close", ImVec2(btnWidth, titleBarHeight)))
 	{
@@ -555,23 +557,12 @@ void TwitchBot::Render()
 
 	ImGui::PopStyleColor(2);
 	ImGui::PopStyleVar(2);
-	ImGui::PopStyleColor(3);
+	ImGui::PopStyleColor(4);
 	ImGui::PopFont();
 
 	ImGui::SetCursorPos(ImVec2(ImGui::GetStyle().WindowPadding.x, titleBarHeight + ImGui::GetStyle().WindowPadding.y));
 
 	if (!isRunning || (!showSettings && ImGui::IsKeyPressed(ImGuiKey_Escape))) { Window::Close(); }
-
-	if (ImGui::BeginMenuBar())
-	{
-		ImGui::PushFont(font);
-		if (ImGui::MenuItem("Settings"))
-		{
-			showSettings = !showSettings;
-		}
-		ImGui::PopFont();
-		ImGui::EndMenuBar();
-	}
 
 	if (showOnboarding)
 	{
@@ -579,7 +570,6 @@ void TwitchBot::Render()
 		showOnboarding = false;
 	}
 
-	ImGui::PopStyleColor(4);
 	ImGui::PopStyleVar();
 	ImGui::PopFont();
 
@@ -592,19 +582,12 @@ void TwitchBot::Render()
 
 	if (hypeTrain.isActive)
 	{
-		ImGui::PushStyleColor(ImGuiCol_PlotHistogram, ImVec4(0.56f, 0.27f, 0.97f, 1.0f));
-
-		float fraction = 0.0f;
-		if (hypeTrain.goal > 0)
-		{
-			fraction = (float)hypeTrain.progress / (float)hypeTrain.goal;
-		}
+		float fraction = (hypeTrain.goal > 0)
+			? static_cast<float>(hypeTrain.progress) / static_cast<float>(hypeTrain.goal)
+			: 0.0f;
 
 		std::string overlayText = "Hype Train Level " + std::to_string(hypeTrain.level) + "!";
-
 		ImGui::ProgressBar(fraction, ImVec2(-1.0f, 0.0f), overlayText.c_str());
-
-		ImGui::PopStyleColor();
 		ImGui::Separator();
 	}
 
@@ -707,10 +690,13 @@ void TwitchBot::RenderChat()
 		drawList->ChannelsSplit(2);
 		drawList->ChannelsSetCurrent(1);
 
+		const CardColors* card = Theme::GetCardColors(msg.cardType);
+
 		if (!msg.headerText.empty())
 		{
+			ImVec4 hdrCol = card ? card->header : Theme::Current().textMuted;
 			ImGui::PushFont(headerFont);
-			ImGui::PushStyleColor(ImGuiCol_Text, msg.headerColor);
+			ImGui::PushStyleColor(ImGuiCol_Text, hdrCol);
 			ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(2.0f, 2.0f));
 			ImGui::TextUnformatted(msg.headerText.c_str());
 			ImGui::PopStyleVar();
@@ -731,15 +717,13 @@ void TwitchBot::RenderChat()
 
 		drawList->ChannelsSetCurrent(0);
 
-		if (msg.hasBackground)
+		if (card)
 		{
-			ImU32 bgColor = ImGui::ColorConvertFloat4ToU32(msg.backgroundColor);
-			drawList->AddRectFilled(posMin, posMax, bgColor);
-
-			if (msg.hasAccentBar)
+			drawList->AddRectFilled(posMin, posMax, ImGui::ColorConvertFloat4ToU32(card->background));
+			if (card->accent.w > 0.0f)
 			{
-				ImU32 accentColor = ImGui::ColorConvertFloat4ToU32(msg.accentColor);
-				drawList->AddRectFilled(posMin, ImVec2(posMin.x + 3.0f, posMax.y), accentColor);
+				drawList->AddRectFilled(posMin, ImVec2(posMin.x + 3.0f, posMax.y),
+					ImGui::ColorConvertFloat4ToU32(card->accent));
 			}
 		}
 
@@ -781,13 +765,12 @@ void TwitchBot::RenderQueueWindow()
 
 	ImGui::PushFont(boldFont);
 	ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8.0f, 8.0f));
-	ImGui::PushStyleColor(ImGuiCol_TitleBgActive, ImVec4(0.788235294117647f, 0.62745098039f, 0.86274509803f, 1.0f));
-	ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.1f, 0.1f, 0.1f, 0.75f));
 
 	ImGuiWindowFlags queueWinFlags = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse;
 
 	if (ImGui::Begin("Song Queue", nullptr, queueWinFlags))
 	{
+		const ThemeData& t = Theme::Current();
 		Window::EnableNativeTitleBarDrag(ImGui::GetWindowViewport()->PlatformHandle);
 
 		constexpr float titleBarHeight = 32.0f;
@@ -802,6 +785,8 @@ void TwitchBot::RenderQueueWindow()
 			ImVec2(winPos.x + winWidth, winPos.y + titleBarHeight),
 			ImGui::GetColorU32(ImGuiCol_TitleBgActive)
 		);
+
+		ImGui::PushStyleColor(ImGuiCol_Text, t.titleBarText);
 
 		float textY = (titleBarHeight - ImGui::GetTextLineHeight()) * 0.5f;
 		ImGui::SetCursorPos(ImVec2(12.0f, textY));
@@ -837,24 +822,21 @@ void TwitchBot::RenderQueueWindow()
 		if (ImGui::IsItemHovered())
 		{
 			ImGui::PushFont(TwitchBot::headerFont);
+			ImGui::PushStyleColor(ImGuiCol_Text, t.text);
 			ImGui::SetTooltip("Dock back into main window");
+			ImGui::PopStyleColor();
 			ImGui::PopFont();
 		}
 
-		ImGui::PopStyleVar(2);
-		ImGui::PopStyleColor(3);
+		ImGui::PopStyleVar(3);
+		ImGui::PopStyleColor(4);
 		ImGui::PopFont();
-
-		ImGui::SetCursorPos(ImVec2(ImGui::GetStyle().WindowPadding.x, titleBarHeight + ImGui::GetStyle().WindowPadding.y));
-		ImGui::PopStyleColor(2);
-		ImGui::PopStyleVar();
 		ImGui::PopFont();
 
 		SongQueue::RenderSongQueue();
 	}
 	else
 	{
-		ImGui::PopStyleColor(2);
 		ImGui::PopStyleVar();
 		ImGui::PopFont();
 	}
@@ -903,6 +885,38 @@ void TwitchBot::RenderSettingsWindow()
 				}
 
 				ImGui::Spacing();
+
+				ImGui::PushFont(boldFont);
+				ImGui::TextUnformatted("Appearance");
+				ImGui::PopFont();
+				ImGui::Separator();
+				ImGui::Spacing();
+
+				const auto& allThemes = Theme::GetAll();
+				const std::string& currentName = Theme::Current().name;
+
+				ImGui::SetNextItemWidth(220.0f);
+				if (ImGui::BeginCombo("Theme", currentName.c_str()))
+				{
+					for (const ThemeData& t : allThemes)
+					{
+						bool selected = (t.name == currentName);
+						if (ImGui::Selectable(t.name.c_str(), selected))
+						{
+							Theme::SetActive(t.name);
+							Config::data.themeName = t.name;
+							Config::Save("config.json");
+						}
+						if (selected) { ImGui::SetItemDefaultFocus(); }
+					}
+					ImGui::EndCombo();
+				}
+
+				ImGui::SameLine();
+				if (ImGui::Button("Reload Themes"))
+				{
+					Theme::ReloadThemes();
+				}
 
 				ImGui::EndTabItem();
 			}
@@ -1036,7 +1050,7 @@ void TwitchBot::DrawMessage(const ChatMessage& msg)
 
 	if (msg.isDeleted)
 	{
-		ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.4f, 0.4f, 0.4f, 1.0f));
+		ImGui::PushStyleColor(ImGuiCol_Text, Theme::Current().textDeleted);
 		ImGui::TextWrapped("<message deleted>");
 		ImGui::PopStyleColor();
 		ImGui::SameLine();
@@ -1196,8 +1210,7 @@ void TwitchBot::SendMessage(const std::string& text)
 
 	if (IsExactMention(localEcho.text))
 	{
-		localEcho.hasBackground = true;
-		localEcho.backgroundColor = ImVec4(0.8f, 0.2f, 0.2f, 0.5f);
+		localEcho.cardType = ChatCardType::Mention;
 	}
 
 	chatQueue.Push(std::move(localEcho));
@@ -1440,11 +1453,7 @@ std::optional<ChatMessage> TwitchBot::ParseMsg(std::string_view raw)
 					if (val == "highlighted-message")
 					{
 						msg.headerText = "Highlighted Message";
-						msg.headerColor = ImVec4(0.4f, 0.9f, 1.0f, 1.0f);
-						msg.hasBackground = true;
-						msg.backgroundColor = ImVec4(0.15f, 0.50f, 0.65f, 0.35f);
-						msg.hasAccentBar = true;
-						msg.accentColor = ImVec4(0.2f, 0.8f, 1.0f, 1.0f);
+						msg.cardType = ChatCardType::Highlighted;
 					}
 					else if (val == "gigantified-emote-message")
 					{
@@ -1544,29 +1553,17 @@ std::optional<ChatMessage> TwitchBot::ParseMsg(std::string_view raw)
 	if (msg.firstMsg)
 	{
 		msg.headerText = isRaider ? ("First Time Chatter From " + raidSource) : "First Time Chatter";
-		msg.headerColor = ImVec4(0.85f, 0.70f, 1.0f, 1.0f);
-		msg.hasBackground = true;
-		msg.backgroundColor = ImVec4(0.93f, 0.59f, 0.84f, 0.50f);
-		msg.hasAccentBar = true;
-		msg.accentColor = ImVec4(0.70f, 0.40f, 1.0f, 1.0f);
+		msg.cardType = ChatCardType::FirstChat;
 	}
 	else if (isRaider)
 	{
 		msg.headerText = "Raider From " + raidSource;
-		msg.headerColor = ImVec4(1.0f, 0.80f, 0.40f, 1.0f);
-		msg.hasBackground = true;
-		msg.backgroundColor = ImVec4(0.85f, 0.50f, 0.10f, 0.30f);
-		msg.hasAccentBar = true;
-		msg.accentColor = ImVec4(1.0f, 0.65f, 0.15f, 1.0f);
+		msg.cardType = ChatCardType::Raider;
 	}
 	else if (msg.returning)
 	{
 		msg.headerText = "Returning Chatter";
-		msg.headerColor = ImVec4(0.50f, 0.85f, 1.0f, 1.0f);
-		msg.hasBackground = true;
-		msg.backgroundColor = ImVec4(0.15f, 0.45f, 0.85f, 0.30f);
-		msg.hasAccentBar = true;
-		msg.accentColor = ImVec4(0.30f, 0.70f, 1.0f, 1.0f);
+		msg.cardType = ChatCardType::Returning;
 	}
 	else if (!msg.replyParentUser.empty())
 	{
@@ -1582,7 +1579,7 @@ std::optional<ChatMessage> TwitchBot::ParseMsg(std::string_view raw)
 
 		if (preview.length() > 40) { preview = preview.substr(0, 37) + "..."; }
 		msg.headerText = "Replying to @" + msg.replyParentUser + ": " + preview;
-		msg.headerColor = ImVec4(0.65f, 0.65f, 0.65f, 1.0f);
+
 		size_t i = msg.text.find_first_of(' ') + 1;
 		msg.text = msg.text.substr(i);
 		ChatSegment& seg = msg.segments.front();
@@ -1596,15 +1593,13 @@ std::optional<ChatMessage> TwitchBot::ParseMsg(std::string_view raw)
 
 		if (msg.replyParentUser == OAuth::ChannelName())
 		{
-			msg.hasBackground = true;
-			msg.backgroundColor = ImVec4(0.8f, 0.2f, 0.2f, 0.5f);
+			msg.cardType = ChatCardType::Mention;
 		}
 	}
 
 	if (IsExactMention(msg.text))
 	{
-		msg.hasBackground = true;
-		msg.backgroundColor = ImVec4(0.8f, 0.2f, 0.2f, 0.5f);
+		msg.cardType = ChatCardType::Mention;
 	}
 
 	AutoModAction verdict = EvaluateMessage(msg);

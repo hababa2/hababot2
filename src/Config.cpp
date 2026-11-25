@@ -133,6 +133,8 @@ bool Config::Load(const std::string& filepath)
 						}
 					}
 				}
+
+				data.themeName = j.value("theme", "wisteria");
 			}
 			catch (const std::exception& e)
 			{
@@ -215,6 +217,8 @@ void Config::Save(const std::string& filepath)
 		{ "queue_visible", data.queue.queueVisible },
 		{ "items", std::move(queueItems) }
 	};
+
+	j["theme"] = data.themeName;
 
 	std::filesystem::path targetPath(filepath);
 	std::filesystem::path tmpPath = targetPath;

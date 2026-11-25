@@ -4,6 +4,7 @@
 #include "SongLibrary.hpp"
 #include "Window.hpp"
 #include "Config.hpp"
+#include "Theme.hpp"
 
 #include "imgui.h"
 
@@ -92,10 +93,12 @@ std::string SongQueue::FormatDuration(int64_t ms)
 
 void SongQueue::RenderSongQueue()
 {
+	const ThemeData& t = Theme::Current();
+
 	ImGui::BeginChild("SongQueue", ImVec2(0, 0), ImGuiChildFlags_FrameStyle, ImGuiWindowFlags_NoScrollbar);
 
 	ImGui::PushFont(TwitchBot::boldFont);
-	ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.45f, 0.95f, 0.55f, 1.0f));
+	ImGui::PushStyleColor(ImGuiCol_Text, t.accent);
 	ImGui::TextUnformatted("Now Playing");
 	ImGui::PopStyleColor();
 	ImGui::PopFont();
@@ -111,8 +114,8 @@ void SongQueue::RenderSongQueue()
 	{
 		ImVec2 p = ImGui::GetCursorScreenPos();
 		ImDrawList* dl = ImGui::GetWindowDrawList();
-		dl->AddRectFilled(p, ImVec2(p.x + artSize.x, p.y + artSize.y), IM_COL32(45, 45, 52, 255), 6.0f);
-		dl->AddRect(p, ImVec2(p.x + artSize.x, p.y + artSize.y), IM_COL32(90, 90, 105, 255), 6.0f);
+		dl->AddRectFilled(p, ImVec2(p.x + artSize.x, p.y + artSize.y), ImGui::ColorConvertFloat4ToU32(t.surface), 6.0f);
+		dl->AddRect(p, ImVec2(p.x + artSize.x, p.y + artSize.y), ImGui::ColorConvertFloat4ToU32(t.border), 6.0f);
 		ImGui::Dummy(artSize);
 	}
 
@@ -127,10 +130,10 @@ void SongQueue::RenderSongQueue()
 
 		std::string lenStr = FormatDuration(currentSongLengthMs);
 
-		if (!currentSongRequester.empty())
+		if (!currentSongRequester.empty() || !lenStr.empty())
 		{
 			ImGui::PushFont(TwitchBot::headerFont);
-			ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.75f, 0.75f, 0.75f, 1.0f));
+			ImGui::PushStyleColor(ImGuiCol_Text, t.textMuted);
 			
 			if (!currentSongRequester.empty() && !lenStr.empty())
 			{
@@ -196,7 +199,7 @@ void SongQueue::RenderSongQueue()
 
 			if (!totalText.empty())
 			{
-				ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.68f, 0.68f, 0.72f, 1.0f));
+				ImGui::PushStyleColor(ImGuiCol_Text, t.textMuted);
 				ImGui::TextUnformatted(totalText.c_str());
 				ImGui::PopStyleColor();
 			}
@@ -267,7 +270,7 @@ void SongQueue::RenderSongQueue()
 				ImGui::PopFont();
 
 				ImGui::PushFont(TwitchBot::headerFont);
-				ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.70f, 0.70f, 0.75f, 1.0f));
+				ImGui::PushStyleColor(ImGuiCol_Text, t.textMuted);
 				ImGui::Text("   Requested by %s", song.requester.c_str());
 				ImGui::PopStyleColor();
 				ImGui::PopFont();
@@ -281,7 +284,9 @@ void SongQueue::RenderSongQueue()
 	ImGui::EndChild();
 
 	ImGui::PushFont(TwitchBot::font);
-	ImGui::PushStyleColor(ImGuiCol_Button, IM_COL32(200, 50, 50, 255));
+	ImGui::PushStyleColor(ImGuiCol_Button, t.closeActive);
+	ImGui::PushStyleColor(ImGuiCol_ButtonHovered, t.closeHovered);
+	ImGui::PushStyleColor(ImGuiCol_ButtonActive, t.closeActive);
 	if (ImGui::Button("Clear Queue", ImVec2(-1, 30)))
 	{
 		songQueue.clear();
@@ -290,7 +295,7 @@ void SongQueue::RenderSongQueue()
 		SaveToConfig();
 	}
 
-	ImGui::PopStyleColor();
+	ImGui::PopStyleColor(3);
 	ImGui::PopFont();
 
 	ImGui::EndChild();
@@ -354,17 +359,16 @@ void SongQueue::UpdateCurrentSong()
 			if (DoesSongMatchRequest(rawContents, it->request))
 			{
 				currentSongRequester = it->requester;
+				if (it->lengthMs > 0) { currentSongLengthMs = it->lengthMs; }
 				songQueue.erase(it);
 
-				if (it->lengthMs > 0) { currentSongLengthMs = it->lengthMs; }
-
 				BroadcastQueue();
-				BroadcastNowPlaying();
 				SaveToConfig();
-
 				break;
 			}
 		}
+
+		BroadcastNowPlaying();
 	}
 }
 
@@ -513,6 +517,8 @@ ID3D11ShaderResourceView* SongQueue::CreateSrvFromFile(ID3D11Device* device, ID3
 	int width = 0, height = 0, channels = 0;
 	unsigned char* pixels = stbi_load_from_file(f, &width, &height, &channels, 4);
 	fclose(f);
+
+	if (!pixels) { return nullptr; }
 
 	D3D11_TEXTURE2D_DESC desc{};
 	desc.Width = static_cast<UINT>(width);

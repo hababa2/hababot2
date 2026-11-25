@@ -105,6 +105,7 @@
     <ClCompile Include="imgui\imgui_draw.cpp" />
     <ClCompile Include="imgui\imgui_tables.cpp" />
     <ClCompile Include="imgui\imgui_widgets.cpp" />
+    <ClCompile Include="src\Theme.cpp" />
     <ClCompile Include="src\Badges.cpp" />
     <ClCompile Include="src\Commands.cpp" />
     <ClCompile Include="src\Config.cpp" />
@@ -196,6 +197,7 @@
     <ClInclude Include="src\Queue.hpp" />
     <ClInclude Include="src\SongLibrary.hpp" />
     <ClInclude Include="src\SongQueue.hpp" />
+    <ClInclude Include="src\Theme.hpp" />
     <ClInclude Include="src\TwitchBot.hpp" />
     <ClInclude Include="src\Window.hpp" />
     <ClInclude Include="stb_image.h" />

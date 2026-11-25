@@ -3,6 +3,7 @@
 #include "OAuth.hpp"
 #include "TwitchBot.hpp"
 #include "Config.hpp"
+#include "Theme.hpp"
 
 #include <cpr/cpr.h>
 
@@ -54,11 +55,7 @@ namespace
 		msg.displayName = gift.gifter;
 		msg.colorHex = gift.colorHex;
 
-		msg.hasBackground = true;
-		msg.hasAccentBar = true;
-		msg.headerColor = ImVec4(1.0f, 0.55f, 0.85f, 1.0f);
-		msg.backgroundColor = ImVec4(0.50f, 0.14f, 0.38f, 0.65f);
-		msg.accentColor = ImVec4(0.95f, 0.30f, 0.70f, 1.0f);
+		msg.cardType = ChatCardType::Gift;
 
 		int count = std::max(gift.expectedTotal, static_cast<int>(gift.recipients.size()));
 
@@ -200,14 +197,12 @@ void Events::ParseMessage(const std::string& rawJson)
 
 			ChatMessage alertMsg;
 			alertMsg.isAlert = true;
-			alertMsg.hasBackground = true;
-			alertMsg.backgroundColor = ImVec4(0.2f, 0.2f, 0.2f, 1.0f);
 
 			if (subType == "channel.follow")
 			{
 				std::string userName = event["user_name"];
 				alertMsg.text = userName + " followed the channel!";
-				alertMsg.backgroundColor = ImVec4(0.73f, 0.96f, 0.94f, 0.60f);
+				alertMsg.cardType = ChatCardType::Follow;
 			}
 			else if (subType == "channel.chat.notification")
 			{
@@ -244,8 +239,7 @@ void Events::ParseMessage(const std::string& rawJson)
 					alertMsg.text = userName + " cheered " + std::to_string(bits) + " bits!";
 				}
 
-				alertMsg.text = userName + " cheered " + std::to_string(bits) + " bits!";
-				alertMsg.backgroundColor = ImVec4(0.8f, 0.5f, 0.1f, 1.0f);
+				alertMsg.cardType = ChatCardType::Bits;
 			}
 			else if (subType == "channel.raid")
 			{
@@ -253,7 +247,9 @@ void Events::ParseMessage(const std::string& rawJson)
 				int viewerCount = event["viewers"].get<int>();
 
 				alertMsg.text = userName + " is raiding with a party of " + std::to_string(viewerCount) + "!";
-				alertMsg.backgroundColor = ImVec4(0.8f, 0.5f, 0.1f, 0.9f);
+				alertMsg.cardType = ChatCardType::Raid;
+
+				TwitchBot::NotifyRaid(userName);
 			}
 			else if (subType == "channel.channel_points_custom_reward_redemption.add")
 			{
@@ -277,7 +273,7 @@ void Events::ParseMessage(const std::string& rawJson)
 					{
 						placement = "1st";
 						alertMsg.colorHex = "#d4af37";
-						alertMsg.backgroundColor = ImVec4(0.83f, 0.68f, 0.21f, 0.65f);
+						alertMsg.cardType = ChatCardType::EarlyBird1st;
 						++stats.first;
 						count = placement + " " + std::to_string(stats.first) + " Time" + (stats.first > 1 ? "s" : "");
 					}
@@ -285,7 +281,7 @@ void Events::ParseMessage(const std::string& rawJson)
 					{
 						placement = "2nd";
 						alertMsg.colorHex = "#c0c0c0";
-						alertMsg.backgroundColor = ImVec4(0.77f, 0.77f, 0.77f, 0.65f);
+						alertMsg.cardType = ChatCardType::EarlyBird2nd;
 						++stats.second;
 						count = placement + " " + std::to_string(stats.second) + " Time" + (stats.second > 1 ? "s" : "");
 					}
@@ -293,17 +289,12 @@ void Events::ParseMessage(const std::string& rawJson)
 					{
 						placement = "3rd";
 						alertMsg.colorHex = "#cd7f32";
-						alertMsg.backgroundColor = ImVec4(0.80f, 0.54f, 0.27f, 0.65f);
+						alertMsg.cardType = ChatCardType::EarlyBird3rd;
 						++stats.third;
 						count = placement + " " + std::to_string(stats.third) + " Time" + (stats.third > 1 ? "s" : "");
 					}
 
 					alertMsg.headerText = "EARLY BIRD!";
-					alertMsg.headerColor = ImVec4(1.0f, 0.84f, 0.0f, 1.0f);
-					alertMsg.hasBackground = true;
-					alertMsg.hasAccentBar = true;
-					alertMsg.accentColor = ImVec4(1.0f, 0.84f, 0.0f, 1.0f);
-
 					alertMsg.text = alertMsg.displayName + " is the " + placement + " early bird to the stream! They've been " + count;
 
 					TextSegment seg;
@@ -311,21 +302,34 @@ void Events::ParseMessage(const std::string& rawJson)
 					alertMsg.segments.push_back(seg);
 
 					TwitchBot::SendAlert(alertMsg);
+					Config::Save();
+					return;
 				}
 				else
 				{
 					alertMsg.text = userName + " redeemed: " + rewardTitle;
-					alertMsg.backgroundColor = ImVec4(0.1f, 0.6f, 0.4f, 1.0f);
+					alertMsg.cardType = ChatCardType::Redemption;
 				}
 			}
 			else if (subType == "channel.hype_train.begin")
 			{
-				int level = std::max(event["level"].get<int>(), TwitchBot::hypeTrain.level);
-
 				TwitchBot::hypeTrain.isActive = true;
-				TwitchBot::hypeTrain.progress = level > TwitchBot::hypeTrain.level ? event["progress"].get<int>() : std::max(event["progress"].get<int>(), TwitchBot::hypeTrain.level);
-				TwitchBot::hypeTrain.level = level;
-				TwitchBot::hypeTrain.goal = std::max(event["goal"].get<int>(), TwitchBot::hypeTrain.level);
+				
+				int newLevel = event["level"].get<int>();
+				int newProgress = event["progress"].get<int>();
+				int newGoal = event["goal"].get<int>();
+
+				if (newLevel > TwitchBot::hypeTrain.level)
+				{
+					TwitchBot::hypeTrain.level = newLevel;
+					TwitchBot::hypeTrain.progress = newProgress;
+					TwitchBot::hypeTrain.goal = newGoal;
+				}
+				else if (newLevel == TwitchBot::hypeTrain.level)
+				{
+					TwitchBot::hypeTrain.progress = std::max(newProgress, TwitchBot::hypeTrain.progress);
+					TwitchBot::hypeTrain.goal = std::max(newGoal, TwitchBot::hypeTrain.goal);
+				}
 
 				//TODO:
 				//for (auto& contribution : event["top_contributions"])
@@ -334,15 +338,25 @@ void Events::ParseMessage(const std::string& rawJson)
 				//}
 
 				alertMsg.text = "A hype train has just started!";
-				alertMsg.backgroundColor = ImVec4(0.56f, 0.27f, 0.97f, 1.0f);
+				alertMsg.cardType = ChatCardType::HypeTrain;
 			}
 			else if (subType == "channel.hype_train.progress")
 			{
-				int level = std::max(event["level"].get<int>(), TwitchBot::hypeTrain.level);
+				int newLevel = event["level"].get<int>();
+				int newProgress = event["progress"].get<int>();
+				int newGoal = event["goal"].get<int>();
 
-				TwitchBot::hypeTrain.progress = level > TwitchBot::hypeTrain.level ? event["progress"].get<int>() : std::max(event["progress"].get<int>(), TwitchBot::hypeTrain.level);
-				TwitchBot::hypeTrain.level = level;
-				TwitchBot::hypeTrain.goal = std::max(event["goal"].get<int>(), TwitchBot::hypeTrain.level);
+				if (newLevel > TwitchBot::hypeTrain.level)
+				{
+					TwitchBot::hypeTrain.level = newLevel;
+					TwitchBot::hypeTrain.progress = newProgress;
+					TwitchBot::hypeTrain.goal = newGoal;
+				}
+				else if (newLevel == TwitchBot::hypeTrain.level)
+				{
+					TwitchBot::hypeTrain.progress = std::max(newProgress, TwitchBot::hypeTrain.progress);
+					TwitchBot::hypeTrain.goal = std::max(newGoal, TwitchBot::hypeTrain.goal);
+				}
 			}
 			else if (subType == "channel.hype_train.end")
 			{
@@ -356,7 +370,7 @@ void Events::ParseMessage(const std::string& rawJson)
 				std::string target = event["to_broadcaster_user_name"];
 
 				alertMsg.text = "Shoutout to " + target + "! Go give them a follow!";
-				alertMsg.backgroundColor = ImVec4(0.9f, 0.4f, 0.1f, 0.75f);
+				alertMsg.cardType = ChatCardType::Shoutout;
 			}
 
 			if (!alertMsg.text.empty())
@@ -385,24 +399,9 @@ void Events::ProcessChatNotification(const JsonType& event)
 	msg.displayName = chatterName;
 	msg.colorHex = JsonStr(event, "color", "#9146FF");
 
-	msg.hasBackground = true;
-	msg.hasAccentBar = true;
-
-	auto applySubTheme = [&]() {
-		msg.headerColor = ImVec4(0.85f, 0.55f, 1.0f, 1.0f);
-		msg.backgroundColor = ImVec4(0.35f, 0.15f, 0.55f, 0.65f);
-		msg.accentColor = ImVec4(0.65f, 0.35f, 0.95f, 1.0f);
-	};
-
-	auto applyGiftTheme = [&]() {
-		msg.headerColor = ImVec4(1.0f, 0.55f, 0.85f, 1.0f);
-		msg.backgroundColor = ImVec4(0.50f, 0.14f, 0.38f, 0.65f);
-		msg.accentColor = ImVec4(0.95f, 0.30f, 0.70f, 1.0f);
-	};
-
 	if (noticeType == "sub" && event.contains("sub") && event["sub"].is_object())
 	{
-		applySubTheme();
+		msg.cardType = ChatCardType::Sub;
 		const auto& sub = event["sub"];
 		std::string tier = FormatTier(sub);
 		int duration = JsonInt(sub, "duration_months", 1);
@@ -422,7 +421,7 @@ void Events::ProcessChatNotification(const JsonType& event)
 	}
 	else if (noticeType == "resub" && event.contains("resub") && event["resub"].is_object())
 	{
-		applySubTheme();
+		msg.cardType = ChatCardType::Sub;
 		const auto& resub = event["resub"];
 		std::string tier = FormatTier(resub);
 		int cumulative = JsonInt(resub, "cumulative_months", 1);
@@ -557,7 +556,7 @@ void Events::ProcessChatNotification(const JsonType& event)
 	}
 	else if (noticeType == "gift_paid_upgrade" || noticeType == "prime_paid_upgrade")
 	{
-		applySubTheme();
+		msg.cardType = ChatCardType::Sub;
 		msg.isAlert = true;
 		msg.headerText = (noticeType == "prime_paid_upgrade") ? "Prime Upgrade" : "Gift Sub Upgrade";
 		msg.text = chatterName + " upgraded their subscription!";
@@ -565,7 +564,7 @@ void Events::ProcessChatNotification(const JsonType& event)
 	}
 	else if (noticeType == "watch_streak" && event.contains("watch_streak") && event["watch_streak"].is_object())
 	{
-		applySubTheme();
+		msg.cardType = ChatCardType::Sub;
 		int streak = JsonInt(event["watch_streak"], "streak_count", 1);
 		msg.headerText = "Watch Streak • " + std::to_string(streak) + " Streams";
 

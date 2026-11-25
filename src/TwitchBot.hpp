@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Queue.hpp"
+#include "Theme.hpp"
 
 #include "imgui.h"
 
@@ -114,6 +115,7 @@ struct ChatMessage
 	uint64_t timestamp = 0;
 	uint32_t bits = 0;
 
+	ChatCardType cardType = ChatCardType::None;
 	bool hasBackground = false;
 	ImVec4 backgroundColor = ImVec4(0.0f, 0.0f, 0.0f, 0.0f);
 	std::string headerText;

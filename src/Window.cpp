@@ -249,6 +249,11 @@ void Window::Close()
 	running = false;
 }
 
+void Window::Minimize()
+{
+	ShowWindow(hWnd, SW_MINIMIZE);
+}
+
 bool Window::Resizing()
 {
 	return resizing;
@@ -506,10 +511,11 @@ LRESULT __stdcall Window::WindowsMessageProc(HWND hWnd, UINT msg, WPARAM wParam,
 		ScreenToClient(hWnd, &clientPt);
 
 		constexpr int titleBarHeight = 32;
-		constexpr int closeButtonWidth = 32;
+		constexpr int titleBarButtonsWidth = 120;
+
 		if (clientPt.y >= 0 && clientPt.y < titleBarHeight)
 		{
-			if (pt.x >= rc.right - closeButtonWidth) { return HTCLIENT; }
+			if (pt.x >= rc.right - titleBarButtonsWidth) { return HTCLIENT; }
 
 			if (ImGui::GetCurrentContext() != nullptr)
 			{
@@ -520,6 +526,7 @@ LRESULT __stdcall Window::WindowsMessageProc(HWND hWnd, UINT msg, WPARAM wParam,
 
 			return HTCAPTION;
 		}
+
 	} return HTCLIENT;
 	case WM_SETCURSOR: {
 		switch (LOWORD(lParam))

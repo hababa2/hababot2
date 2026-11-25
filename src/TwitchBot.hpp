@@ -178,6 +178,8 @@ private:
 	static asio::awaitable<void> RelayWriteLoop();
 	static void SendToRelay(const std::string& msg);
 
+	static ImFont* LoadFontWithFallbacks(ImGuiIO& io, const char* primaryPath, float sizePx);
+
 	static void RenderSettingsWindow();
 	static void DrawUsername(const ChatMessage& msg);
 	static void DrawMessage(const ChatMessage& msg);

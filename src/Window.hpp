@@ -22,6 +22,7 @@ public:
 	static void Shutdown();
 
 	static void Close();
+	static void Minimize();
 	static bool Resizing();
 	static void SaveWindowPlacement();
 	static bool LoadWindowPlacement();

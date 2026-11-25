@@ -20,6 +20,7 @@
 #include <iostream>
 #include <algorithm>
 #include <fstream>
+#include <filesystem>
 
 bool TwitchBot::isRunning = true;
 bool TwitchBot::showSettings = false;
@@ -270,18 +271,52 @@ asio::awaitable<void> TwitchBot::RelayWriteLoop()
 	relayWriteInProgress = false;
 }
 
-awaitable<void> TwitchBot::Run()
+ImFont* TwitchBot::LoadFontWithFallbacks(ImGuiIO& io, const char* primaryPath, float sizePx)
 {
 	ImFontConfig fontConfig;
 	fontConfig.OversampleH = 3;
 	fontConfig.OversampleV = 1;
 
+	ImFont* font = io.Fonts->AddFontFromFileTTF(primaryPath, sizePx, &fontConfig);
+	if (!font) { return nullptr; }
+
+	auto mergeIfExists = [&](const char* fallbackPath, float scale = 1.0f) {
+		std::error_code ec;
+		if (!std::filesystem::exists(fallbackPath, ec)) { return; }
+
+		ImFontConfig cfg;
+		cfg.MergeMode = true;
+		cfg.PixelSnapH = true;
+		cfg.OversampleH = 1;
+		cfg.OversampleV = 1;
+		io.Fonts->AddFontFromFileTTF(fallbackPath, sizePx * scale, &cfg);
+	};
+
+	mergeIfExists("C:/Windows/Fonts/seguisym.ttf");
+
+	if (std::filesystem::exists("C:/Windows/Fonts/YuGothM.ttc"))
+	{
+		mergeIfExists("C:/Windows/Fonts/YuGothM.ttc");
+	}
+	else
+	{
+		mergeIfExists("C:/Windows/Fonts/msgothic.ttc");
+	}
+
+	mergeIfExists("C:/Windows/Fonts/malgun.ttf");
+
+	return font;
+}
+
+awaitable<void> TwitchBot::Run()
+{
 	ImGuiIO& io = ImGui::GetIO();
 
-	font = io.Fonts->AddFontFromFileTTF("Roobert.otf", 22.0f, &fontConfig);
-	boldFont = io.Fonts->AddFontFromFileTTF("RoobertBold.otf", 22.0f, &fontConfig);
-	italicFont = io.Fonts->AddFontFromFileTTF("RoobertItalic.otf", 22.0f, &fontConfig);
-	headerFont = io.Fonts->AddFontFromFileTTF("RoobertBold.otf", 18.0f, &fontConfig);
+	font = LoadFontWithFallbacks(io, "Roobert.otf", 22.0f);
+	boldFont = LoadFontWithFallbacks(io, "RoobertBold.otf", 22.0f);
+	italicFont = LoadFontWithFallbacks(io, "RoobertItalic.otf", 22.0f);
+	headerFont = LoadFontWithFallbacks(io, "RoobertBold.otf", 18.0f);
+
 	io.Fonts->Build();
 
 	ImGuiStyle& style = ImGui::GetStyle();
@@ -453,16 +488,77 @@ void TwitchBot::Render()
 	ImGui::SetNextWindowSize(ImGui::GetIO().DisplaySize);
 
 	ImGuiWindowFlags windowFlags = ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse |
-		ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_MenuBar | ImGuiWindowFlags_NoBringToFrontOnFocus;
+		ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoBringToFrontOnFocus;
 
-	ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8.0f, 8.0f));
 	ImGui::PushFont(boldFont);
+	ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8.0f, 8.0f));
 	ImGui::PushStyleColor(ImGuiCol_TitleBg, ImVec4(0.788235294117647f, 0.62745098039f, 0.86274509803f, 1.0f));
 	ImGui::PushStyleColor(ImGuiCol_TitleBgActive, ImVec4(0.788235294117647f, 0.62745098039f, 0.86274509803f, 1.0f));
 	ImGui::PushStyleColor(ImGuiCol_TitleBgCollapsed, ImVec4(0.788235294117647f, 0.62745098039f, 0.86274509803f, 1.0f));
 	ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.1f, 0.1f, 0.1f, 0.75f));
 
-	ImGui::Begin("Hababot2", &isRunning, windowFlags);
+	ImGui::Begin("Hababot2", nullptr, windowFlags);
+
+	constexpr float titleBarHeight = 32.0f;
+	constexpr float btnWidth = 40.0f;
+	constexpr float btnSpacing = 2.0f;
+
+	ImVec2 winPos = ImGui::GetWindowPos();
+	float winWidth = ImGui::GetWindowWidth();
+
+	ImDrawList* drawList = ImGui::GetWindowDrawList();
+	drawList->AddRectFilled(
+		winPos,
+		ImVec2(winPos.x + winWidth, winPos.y + titleBarHeight),
+		ImGui::GetColorU32(ImGuiCol_TitleBgActive)
+	);
+
+	float textY = (titleBarHeight - ImGui::GetTextLineHeight()) * 0.5f;
+	ImGui::SetCursorPos(ImVec2(12.0f, textY));
+	ImGui::TextUnformatted("Hababot2");
+
+	ImGui::PushFont(nullptr, 24.0f);
+	ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
+	ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(1.0f, 1.0f, 1.0f, 0.12f));
+	ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(1.0f, 1.0f, 1.0f, 0.20f));
+	ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 0.0f);
+	ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0.0f, 0.0f));
+
+	ImGui::SetCursorPos(ImVec2(winWidth - btnWidth * 3.0f, 0.0f));
+	if (ImGui::Button("\xE2\x9A\x99##Settings", ImVec2(btnWidth, titleBarHeight)))
+	{
+		showSettings = true;
+		ImGui::OpenPopup("Settings");
+	}
+
+	if (ImGui::IsItemHovered())
+	{
+		ImGui::PushFont(TwitchBot::headerFont);
+		ImGui::SetTooltip("Settings");
+		ImGui::PopFont();
+	}
+
+	ImGui::SetCursorPos(ImVec2(winWidth - btnWidth * 2.0f, 0.0f));
+	if (ImGui::Button("\xE2\x88\x92##Minimize", ImVec2(btnWidth, titleBarHeight)))
+	{
+		Window::Minimize();
+	}
+
+	ImGui::SetCursorPos(ImVec2(winWidth - btnWidth, 0.0f));
+	ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.85f, 0.20f, 0.20f, 0.90f));
+	ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.70f, 0.15f, 0.15f, 1.00f));
+
+	if (ImGui::Button("\xC3\x97##Close", ImVec2(btnWidth, titleBarHeight)))
+	{
+		isRunning = false;
+	}
+
+	ImGui::PopStyleColor(2);
+	ImGui::PopStyleVar(2);
+	ImGui::PopStyleColor(3);
+	ImGui::PopFont();
+
+	ImGui::SetCursorPos(ImVec2(ImGui::GetStyle().WindowPadding.x, titleBarHeight + ImGui::GetStyle().WindowPadding.y));
 
 	if (!isRunning || (!showSettings && ImGui::IsKeyPressed(ImGuiKey_Escape))) { Window::Close(); }
 
@@ -484,12 +580,12 @@ void TwitchBot::Render()
 	}
 
 	ImGui::PopStyleColor(4);
-	ImGui::PopFont();
 	ImGui::PopStyleVar();
+	ImGui::PopFont();
 
 	RenderSettingsWindow();
 
-	ImGui::PushFont(TwitchBot::font);
+	ImGui::PushFont(font);
 	Config::OnboardingPopup();
 	Debug::RenderDebugTools();
 	ImGui::PopFont();
@@ -520,7 +616,6 @@ void TwitchBot::Render()
 	ImGui::BeginChild("ChatRegion", ImVec2(chatWidth, 0), false, ImGuiWindowFlags_NoScrollbar);
 
 	float maxWrapX = ImGui::GetWindowPos().x + ImGui::GetWindowContentRegionMax().x;
-	ImDrawList* drawList = ImGui::GetWindowDrawList();
 
 	for (const ChatMessage& msg : chatHistory)
 	{

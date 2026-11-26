@@ -6,6 +6,12 @@
 #include <thread>
 #include <charconv>
 
+#define WIN32_LEAN_AND_MEAN
+#include <Windows.h>
+#include <thread>
+#include <chrono>
+#include <cwctype>
+
 std::mutex SongLibrary::mtx;
 json SongLibrary::songs = json::array();
 std::string SongLibrary::cachedPayload;
@@ -16,6 +22,7 @@ void SongLibrary::Initialize()
 {
 	LoadCache();
 	ScanAsync();
+	StartWatcher();
 }
 
 void SongLibrary::LoadCache(const fs::path& cachePath)
@@ -230,19 +237,80 @@ void SongLibrary::RebuildPayloadLocked()
 	cachedPayload = msg.dump(-1, ' ', false, nlohmann::json::error_handler_t::replace);
 }
 
+std::string SongLibrary::StripParentheticals(std::string_view input)
+{
+	std::string out;
+	out.reserve(input.size());
+
+	int parenDepth = 0;
+	int bracketDepth = 0;
+
+	for (char c : input)
+	{
+		if (c == '(') { ++parenDepth; continue; }
+		if (c == ')' && parenDepth > 0) { --parenDepth; continue; }
+		if (c == '[') { ++bracketDepth; continue; }
+		if (c == ']' && bracketDepth > 0) { --bracketDepth; continue; }
+
+		if (parenDepth == 0 && bracketDepth == 0)
+		{
+			out.push_back(c);
+		}
+	}
+
+	for (unsigned char c : out)
+	{
+		if (c >= 128 || std::isalnum(c)) { return out; }
+	}
+	return std::string(input);
+}
+
+std::vector<std::string> SongLibrary::TokenizeWords(std::string_view input)
+{
+	std::vector<std::string> tokens;
+	std::string current;
+
+	for (unsigned char c : input)
+	{
+		if (c >= 128 || std::isalnum(c))
+		{
+			current.push_back(c < 128 ? static_cast<char>(std::tolower(c)) : static_cast<char>(c));
+		}
+		else if (!current.empty())
+		{
+			tokens.push_back(std::move(current));
+			current.clear();
+		}
+	}
+
+	if (!current.empty()) { tokens.push_back(std::move(current)); }
+	return tokens;
+}
+
 int64_t SongLibrary::FindSongLengthMs(std::string_view query)
 {
-	std::string lowerQuery(query);
-	std::transform(lowerQuery.begin(), lowerQuery.end(), lowerQuery.begin(),
-		[](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-
+	std::string lowerQuery = ToLowerAscii(query);
 	size_t first = lowerQuery.find_first_not_of(" \t\r\n");
 	if (first == std::string::npos) { return 0; }
 	lowerQuery.erase(0, first);
 	if (lowerQuery.starts_with("any ")) { return 0; }
 
-	std::string normQuery = NormalizeAlphaNum(query);
-	if (normQuery.empty()) { return 0; }
+	std::string cleanQuery = StripParentheticals(query);
+	std::string normCleanQuery = NormalizeAlphaNum(cleanQuery);
+	std::vector<std::string> queryTokens = TokenizeWords(cleanQuery);
+	if (queryTokens.empty()) { return 0; }
+
+	auto allTokensPresent = [&](const std::vector<std::string>& needle) -> bool {
+		if (needle.empty()) { return false; }
+		for (const std::string& t : needle)
+		{
+			if (std::find(queryTokens.begin(), queryTokens.end(), t) == queryTokens.end())
+			{
+				return false;
+			}
+		}
+		return true;
+	};
 
 	std::lock_guard<std::mutex> lock(mtx);
 
@@ -250,11 +318,11 @@ int64_t SongLibrary::FindSongLengthMs(std::string_view query)
 	{
 		if (song.songLengthMs <= 0) { continue; }
 
-		std::string full = song.artist + " - " + song.name;
-		std::transform(full.begin(), full.end(), full.begin(),
-			[](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+		std::string full = ToLowerAscii(song.artist + " - " + song.name);
+		if (full == lowerQuery) { return song.songLengthMs; }
 
-		if (full == lowerQuery)
+		std::string cleanFull = NormalizeAlphaNum(song.artist + " " + StripParentheticals(song.name));
+		if (!normCleanQuery.empty() && cleanFull == normCleanQuery)
 		{
 			return song.songLengthMs;
 		}
@@ -267,15 +335,29 @@ int64_t SongLibrary::FindSongLengthMs(std::string_view query)
 	{
 		if (song.songLengthMs <= 0) { continue; }
 
-		std::string normName = NormalizeAlphaNum(song.name);
-		if (normName.empty() || normQuery.find(normName) == std::string::npos) { continue; }
+		std::vector<std::string> cleanNameTokens = TokenizeWords(StripParentheticals(song.name));
+		std::vector<std::string> fullNameTokens = TokenizeWords(song.name);
 
-		size_t score = normName.size();
-		std::string normArtist = NormalizeAlphaNum(song.artist);
-		if (!normArtist.empty() && normQuery.find(normArtist) != std::string::npos)
+		bool matchedClean = allTokensPresent(cleanNameTokens);
+		bool matchedFull = !matchedClean && allTokensPresent(fullNameTokens);
+		if (!matchedClean && !matchedFull) { continue; }
+
+		const auto& matchedTokens = matchedClean ? cleanNameTokens : fullNameTokens;
+		size_t matchedChars = 0;
+		for (const std::string& t : matchedTokens) { matchedChars += t.size(); }
+
+		std::vector<std::string> artistTokens = TokenizeWords(song.artist);
+		bool artistMatched = allTokensPresent(artistTokens);
+
+		float coverage = static_cast<float>(matchedTokens.size()) / static_cast<float>(queryTokens.size());
+		if (!artistMatched && (matchedChars < 3 || coverage < 0.60f))
 		{
-			score += normArtist.size() + 100;
+			continue;
 		}
+
+		size_t score = matchedChars * 10 + matchedTokens.size() * 20;
+		if (artistMatched) { score += 500; }
+		if (matchedTokens.size() == queryTokens.size()) { score += 100; }
 
 		if (score > bestScore)
 		{
@@ -515,4 +597,234 @@ void SongLibrary::ScanAsync(const fs::path& cachePath)
 			isScanning.store(false);
 		}
 	}).detach();
+}
+
+bool SongLibrary::IsScanning()
+{
+	return isScanning;
+}
+
+namespace
+{
+	struct WatchedFolder
+	{
+		HANDLE dirHandle = INVALID_HANDLE_VALUE;
+		OVERLAPPED overlapped{};
+		std::vector<DWORD> buffer = std::vector<DWORD>(4096);
+		bool pendingIo = false;
+	};
+
+	std::thread watcherThread;
+	HANDLE watcherStopEvent = nullptr;
+
+	bool EndsWithInsensitive(std::wstring_view str, std::wstring_view suffix)
+	{
+		if (str.size() < suffix.size()) { return false; }
+		size_t offset = str.size() - suffix.size();
+		for (size_t i = 0; i < suffix.size(); ++i)
+		{
+			if (std::towlower(str[offset + i]) != std::towlower(suffix[i])) { return false; }
+		}
+		return true;
+	}
+
+	bool IsRelevantChange(const BYTE* data, DWORD bytesTransferred)
+	{
+		if (bytesTransferred == 0) { return true; }
+
+		DWORD offset = 0;
+		while (offset < bytesTransferred)
+		{
+			const auto* info = reinterpret_cast<const FILE_NOTIFY_INFORMATION*>(data + offset);
+			std::wstring_view name(info->FileName, info->FileNameLength / sizeof(wchar_t));
+
+			if (EndsWithInsensitive(name, L"song.ini") ||
+				info->Action == FILE_ACTION_REMOVED ||
+				info->Action == FILE_ACTION_RENAMED_OLD_NAME ||
+				info->Action == FILE_ACTION_RENAMED_NEW_NAME)
+			{
+				return true;
+			}
+
+			if (info->NextEntryOffset == 0) { break; }
+			offset += info->NextEntryOffset;
+		}
+
+		return false;
+	}
+
+	bool IssueRead(WatchedFolder& wf)
+	{
+		ResetEvent(wf.overlapped.hEvent);
+		constexpr DWORD filter =
+			FILE_NOTIFY_CHANGE_FILE_NAME |
+			FILE_NOTIFY_CHANGE_DIR_NAME |
+			FILE_NOTIFY_CHANGE_LAST_WRITE;
+
+		BOOL ok = ReadDirectoryChangesW(
+			wf.dirHandle,
+			wf.buffer.data(),
+			static_cast<DWORD>(wf.buffer.size() * sizeof(DWORD)),
+			TRUE,
+			filter,
+			nullptr,
+			&wf.overlapped,
+			nullptr
+		);
+
+		wf.pendingIo = (ok != FALSE);
+		return wf.pendingIo;
+	}
+
+	void WatcherLoop(std::vector<std::string> folders)
+	{
+		std::vector<std::unique_ptr<WatchedFolder>> watched;
+		std::vector<HANDLE> waitHandles;
+		waitHandles.push_back(watcherStopEvent);
+
+		for (const std::string& folder : folders)
+		{
+			if (folder.empty()) { continue; }
+			std::error_code ec;
+			std::filesystem::path p = folder;
+			if (!std::filesystem::exists(p, ec) || !std::filesystem::is_directory(p, ec)) { continue; }
+			if (waitHandles.size() >= MAXIMUM_WAIT_OBJECTS) { break; }
+
+			HANDLE hDir = CreateFileW(
+				p.c_str(),
+				FILE_LIST_DIRECTORY,
+				FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+				nullptr,
+				OPEN_EXISTING,
+				FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OVERLAPPED,
+				nullptr
+			);
+
+			if (hDir == INVALID_HANDLE_VALUE) { continue; }
+
+			auto wf = std::make_unique<WatchedFolder>();
+			wf->dirHandle = hDir;
+			wf->overlapped.hEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+
+			if (wf->overlapped.hEvent && IssueRead(*wf))
+			{
+				waitHandles.push_back(wf->overlapped.hEvent);
+				watched.push_back(std::move(wf));
+			}
+			else
+			{
+				if (wf->overlapped.hEvent) { CloseHandle(wf->overlapped.hEvent); }
+				CloseHandle(hDir);
+			}
+		}
+
+		if (watched.empty()) { return; }
+
+		constexpr auto debounceDuration = std::chrono::milliseconds(2000);
+		bool pendingRescan = false;
+		auto rescanDeadline = std::chrono::steady_clock::now();
+
+		while (true)
+		{
+			DWORD timeoutMs = INFINITE;
+			if (pendingRescan)
+			{
+				auto now = std::chrono::steady_clock::now();
+				if (now >= rescanDeadline)
+				{
+					timeoutMs = 0;
+				}
+				else
+				{
+					timeoutMs = static_cast<DWORD>(
+						std::chrono::duration_cast<std::chrono::milliseconds>(rescanDeadline - now).count());
+				}
+			}
+
+			DWORD waitRes = WaitForMultipleObjects(
+				static_cast<DWORD>(waitHandles.size()),
+				waitHandles.data(),
+				FALSE,
+				timeoutMs
+			);
+
+			if (waitRes == WAIT_OBJECT_0) { break; }
+
+			if (waitRes == WAIT_TIMEOUT)
+			{
+				if (pendingRescan)
+				{
+					if (SongLibrary::IsScanning())
+					{
+						rescanDeadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(1000);
+					}
+					else
+					{
+						pendingRescan = false;
+						std::cout << "[SongLibrary] Folder change detected — rescanning...\n";
+						SongLibrary::ScanAsync();
+					}
+				}
+				continue;
+			}
+
+			if (waitRes > WAIT_OBJECT_0 && waitRes < WAIT_OBJECT_0 + waitHandles.size())
+			{
+				size_t idx = static_cast<size_t>(waitRes - WAIT_OBJECT_0 - 1);
+				WatchedFolder& wf = *watched[idx];
+
+				DWORD bytesTransferred = 0;
+				if (GetOverlappedResult(wf.dirHandle, &wf.overlapped, &bytesTransferred, FALSE))
+				{
+					if (IsRelevantChange(reinterpret_cast<const BYTE*>(wf.buffer.data()), bytesTransferred))
+					{
+						pendingRescan = true;
+						rescanDeadline = std::chrono::steady_clock::now() + debounceDuration;
+					}
+				}
+
+				IssueRead(wf);
+			}
+		}
+
+		for (auto& wf : watched)
+		{
+			if (wf->pendingIo)
+			{
+				CancelIoEx(wf->dirHandle, &wf->overlapped);
+				WaitForSingleObject(wf->overlapped.hEvent, 100);
+			}
+			CloseHandle(wf->overlapped.hEvent);
+			CloseHandle(wf->dirHandle);
+		}
+	}
+}
+
+void SongLibrary::StartWatcher()
+{
+	StopWatcher();
+
+	if (Config::data.songFolders.empty()) { return; }
+
+	watcherStopEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+	if (!watcherStopEvent) { return; }
+
+	watcherThread = std::thread(WatcherLoop, Config::data.songFolders);
+}
+
+void SongLibrary::StopWatcher()
+{
+	if (watcherStopEvent)
+	{
+		SetEvent(watcherStopEvent);
+	}
+	if (watcherThread.joinable())
+	{
+		watcherThread.join();
+	}
+	if (watcherStopEvent)
+	{
+		CloseHandle(watcherStopEvent);
+		watcherStopEvent = nullptr;
+	}
 }

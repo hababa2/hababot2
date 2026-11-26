@@ -2,6 +2,7 @@
 #include "Window.hpp"
 #include "Events.hpp"
 #include "SongQueue.hpp"
+#include "SongLibrary.hpp"
 #include "Config.hpp"
 
 #include <boost/asio.hpp>
@@ -47,6 +48,7 @@ int main()
 	if (networkThread.joinable()) { networkThread.join(); }
 
 	Window::Shutdown();
+	SongLibrary::StopWatcher();
 
 	return 0;
 }

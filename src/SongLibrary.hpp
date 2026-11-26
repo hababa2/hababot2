@@ -42,8 +42,14 @@ public:
 	static void LoadCache(const fs::path& cachePath = "songs.json");
 	static void ScanAsync(const fs::path& cachePath = "songs.json");
 	static std::filesystem::path FindSongFolder(std::string_view currentSongRaw);
+	static std::string StripParentheticals(std::string_view input);
+	static std::vector<std::string> TokenizeWords(std::string_view input);
 	static int64_t FindSongLengthMs(std::string_view query);
 	static std::string GetPayload();
+	static bool IsScanning();
+
+	static void StartWatcher();
+	static void StopWatcher();
 
 private:
 	static void RebuildPayloadLocked();

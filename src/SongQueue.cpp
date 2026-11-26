@@ -374,29 +374,12 @@ void SongQueue::UpdateCurrentSong()
 
 bool SongQueue::DoesSongMatchRequest(std::string_view currentSongRaw, std::string_view requestQuery)
 {
-	auto tokenize = [](std::string_view input) {
-		std::vector<std::string> tokens;
-		std::string current;
+	std::string strippedSong = SongLibrary::StripParentheticals(currentSongRaw);
+	std::string strippedQuery = SongLibrary::StripParentheticals(requestQuery);
 
-		for (unsigned char c : input)
-		{
-			if (c < 128 && std::isalnum(c))
-			{
-				current.push_back(static_cast<char>(std::tolower(c)));
-			}
-			else if (!current.empty())
-			{
-				tokens.push_back(std::move(current));
-				current.clear();
-			}
-		}
-
-		if (!current.empty()) { tokens.push_back(std::move(current)); }
-		return tokens;
-	};
-
-	std::vector<std::string> songTokens = tokenize(currentSongRaw);
-	std::vector<std::string> rawQueryTokens = tokenize(requestQuery);
+	std::vector<std::string> songTokens = SongLibrary::TokenizeWords(currentSongRaw);
+	std::vector<std::string> strippedSongTokens = SongLibrary::TokenizeWords(strippedSong);
+	std::vector<std::string> rawQueryTokens = SongLibrary::TokenizeWords(strippedQuery);
 
 	if (songTokens.empty() || rawQueryTokens.empty()) { return false; }
 
@@ -423,14 +406,15 @@ bool SongQueue::DoesSongMatchRequest(std::string_view currentSongRaw, std::strin
 	if (queryTokens.empty()) { queryTokens = std::move(rawQueryTokens); }
 
 	std::string fullAcronym;
-	std::string strictAcronym;
 	for (const std::string& token : songTokens)
 	{
-		if (!token.empty())
-		{
-			fullAcronym.push_back(token[0]);
-			if (!isFiller(token)) { strictAcronym.push_back(token[0]); }
-		}
+		if (!token.empty()) { fullAcronym.push_back(token[0]); }
+	}
+
+	std::string strictAcronym;
+	for (const std::string& token : strippedSongTokens)
+	{
+		if (!token.empty() && !isFiller(token)) { strictAcronym.push_back(token[0]); }
 	}
 
 	auto levenshtein = [](std::string_view s1, std::string_view s2) {

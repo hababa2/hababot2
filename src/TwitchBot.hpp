@@ -162,6 +162,7 @@ class TwitchBot
 {
 public:
 	static void Initialize(asio::io_context& ioc, asio::ssl::context& ctx);
+	static void LoadFonts();
 	static awaitable<void> Run();
 	static void Render();
 

@@ -58,11 +58,30 @@ void TwitchBot::Initialize(asio::io_context& ioc_, asio::ssl::context& ctx_)
 	ioc = &ioc_;
 	ws = new websocket::stream<beast::ssl_stream<asio::ip::tcp::socket>>(ioc_, ctx_);
 
+	LoadFonts();
 	SongLibrary::Initialize();
 	SongQueue::LoadDefaultAlbumArt("default_album.png");
 	SongQueue::LoadFromConfig();
 
 	Commands::RegisterCommands();
+}
+
+void TwitchBot::LoadFonts()
+{
+	ImGuiIO& io = ImGui::GetIO();
+
+	font = LoadFontWithFallbacks(io, "Roobert.otf", 22.0f);
+	boldFont = LoadFontWithFallbacks(io, "RoobertBold.otf", 22.0f);
+	italicFont = LoadFontWithFallbacks(io, "RoobertItalic.otf", 22.0f);
+	headerFont = LoadFontWithFallbacks(io, "RoobertBold.otf", 18.0f);
+
+	if (font)
+	{
+		io.FontDefault = font;
+	}
+
+	ImGuiStyle& style = ImGui::GetStyle();
+	style.ItemSpacing = ImVec2(2.0f, 5.0f);;
 }
 
 asio::awaitable<void> TwitchBot::ConnectToRelay()
@@ -311,18 +330,6 @@ ImFont* TwitchBot::LoadFontWithFallbacks(ImGuiIO& io, const char* primaryPath, f
 
 awaitable<void> TwitchBot::Run()
 {
-	ImGuiIO& io = ImGui::GetIO();
-
-	font = LoadFontWithFallbacks(io, "Roobert.otf", 22.0f);
-	boldFont = LoadFontWithFallbacks(io, "RoobertBold.otf", 22.0f);
-	italicFont = LoadFontWithFallbacks(io, "RoobertItalic.otf", 22.0f);
-	headerFont = LoadFontWithFallbacks(io, "RoobertBold.otf", 18.0f);
-
-	io.Fonts->Build();
-
-	ImGuiStyle& style = ImGui::GetStyle();
-	style.ItemSpacing = ImVec2(2.0f, 5.0f);
-
 	try
 	{
 		if (!OAuth::Authenticate())
@@ -1012,6 +1019,9 @@ void TwitchBot::DrawUsername(const ChatMessage& msg)
 
 void TwitchBot::DrawMessage(const ChatMessage& msg)
 {
+	ImGui::PushFont(msg.isAction ? italicFont : font);
+	ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0, 3));
+
 	float maxWrapX = ImGui::GetWindowPos().x + ImGui::GetWindowContentRegionMax().x;
 	float currentFontHeight = ImGui::GetFontSize();
 	ImVec2 emoteSize(currentFontHeight * 1.5f, currentFontHeight * 1.5f);
@@ -1044,9 +1054,6 @@ void TwitchBot::DrawMessage(const ChatMessage& msg)
 		}
 	}
 	bool isOnlyJumbo = (contentCount <= 1);
-
-	ImGui::PushFont(msg.isAction ? italicFont : font);
-	ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0, 3));
 
 	if (msg.isDeleted)
 	{

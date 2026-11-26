@@ -28,6 +28,7 @@ public:
 	static bool Resizing();
 	static void SaveWindowPlacement();
 	static bool LoadWindowPlacement();
+	static void SetAlwaysOnTop(bool enabled);
 	static void SetRenderCallback(std::function<void()> callback);
 	static void EnableNativeTitleBarDrag(void* platformHandle);
 	static void MinimizeWindow(void* platformHandle);

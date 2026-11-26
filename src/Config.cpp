@@ -78,10 +78,11 @@ bool Config::Load(const std::string& filepath)
 					data.window.right = w.value("right", data.window.right);
 					data.window.bottom = w.value("bottom", data.window.bottom);
 					data.window.showCmd = w.value("showCmd", data.window.showCmd);
+					data.window.alwaysOnTop = w.value("alwaysOnTop", data.window.alwaysOnTop);
 					data.window.hasSavedPlacement = true;
 
 					data.window.queuePanelWidth = w.value("queuePanelWidth", data.window.queuePanelWidth);
-					data.window.detachQueueWindow = w.value("detachQueueWindow", false);
+					data.window.detachQueueWindow = w.value("detachQueueWindow", data.window.detachQueueWindow);
 
 					if (w.contains("queueWinX") && w.contains("queueWinY") &&
 						w.contains("queueWinW") && w.contains("queueWinH"))
@@ -167,11 +168,12 @@ void Config::Save(const std::string& filepath)
 	if (data.window.hasSavedPlacement)
 	{
 		j["window"] = {
-			{ "showCmd", data.window.showCmd },
 			{ "left", data.window.left },
 			{ "top", data.window.top },
 			{ "right", data.window.right },
 			{ "bottom", data.window.bottom },
+			{ "showCmd", data.window.showCmd },
+			{ "alwaysOnTop", data.window.alwaysOnTop },
 			{ "queuePanelWidth", data.window.queuePanelWidth },
 			{ "detachQueueWindow", data.window.detachQueueWindow }
 		};

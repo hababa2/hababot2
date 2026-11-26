@@ -505,7 +505,6 @@ void TwitchBot::Render()
 
 	constexpr float titleBarHeight = 32.0f;
 	constexpr float btnWidth = 40.0f;
-	constexpr float btnSpacing = 2.0f;
 
 	ImVec2 winPos = ImGui::GetWindowPos();
 	float winWidth = ImGui::GetWindowWidth();
@@ -746,8 +745,12 @@ void TwitchBot::RenderChat()
 void TwitchBot::RenderQueueWindow()
 {
 	ImGuiWindowClass queueClass;
-	queueClass.ViewportFlagsOverrideSet = ImGuiViewportFlags_NoAutoMerge | ImGuiViewportFlags_TopMost;
+	queueClass.ViewportFlagsOverrideSet = ImGuiViewportFlags_NoAutoMerge;
 	queueClass.ViewportFlagsOverrideClear = ImGuiViewportFlags_NoTaskBarIcon;
+
+	if (Config::data.window.alwaysOnTop) { queueClass.ViewportFlagsOverrideSet |= ImGuiViewportFlags_TopMost; }
+	else { queueClass.ViewportFlagsOverrideClear |= ImGuiViewportFlags_TopMost; }
+
 	ImGui::SetNextWindowClass(&queueClass);
 
 	if (Config::data.window.hasSavedQueueBounds)
@@ -892,7 +895,19 @@ void TwitchBot::RenderSettingsWindow()
 				}
 
 				ImGui::Spacing();
+				ImGui::PushFont(boldFont);
+				ImGui::TextUnformatted("General");
+				ImGui::PopFont();
+				ImGui::Separator();
+				ImGui::Spacing();
 
+				if (ImGui::Checkbox("Always on Top", &Config::data.window.alwaysOnTop))
+				{
+					Window::SetAlwaysOnTop(Config::data.window.alwaysOnTop);
+					Config::Save();
+				}
+
+				ImGui::Spacing();
 				ImGui::PushFont(boldFont);
 				ImGui::TextUnformatted("Appearance");
 				ImGui::PopFont();

@@ -14,6 +14,7 @@ struct WindowConfig
 	int right = 1100;
 	int bottom = 800;
 	int showCmd = 1;
+	bool alwaysOnTop = true;
 	bool hasSavedPlacement = false;
 
 	float queuePanelWidth = 340.0f;

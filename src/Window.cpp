@@ -112,7 +112,8 @@ bool Window::Initialize()
 
 	RegisterClassExW(&wc);
 
-	hWnd = CreateWindowExW(WS_EX_APPWINDOW | WS_EX_TOPMOST, L"Hababot2", L"Hababot2", style,
+	DWORD exStyle = WS_EX_APPWINDOW | (Config::data.window.alwaysOnTop ? WS_EX_TOPMOST : 0);
+	hWnd = CreateWindowExW(exStyle, L"Hababot2", L"Hababot2", style,
 		100, 100, 600, 600, nullptr, nullptr, instance, nullptr);
 
 	if (!hWnd)
@@ -297,6 +298,18 @@ bool Window::LoadWindowPlacement()
 	}
 
 	return SetWindowPlacement(hWnd, &wp) != 0;
+}
+
+void Window::SetAlwaysOnTop(bool enabled)
+{
+	if (!hWnd) { return; }
+
+	SetWindowPos(
+		hWnd,
+		enabled ? HWND_TOPMOST : HWND_NOTOPMOST,
+		0, 0, 0, 0,
+		SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE
+	);
 }
 
 void Window::SetRenderCallback(std::function<void()> callback)

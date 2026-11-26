@@ -2,24 +2,15 @@
 A twitch bot, chat viewer, and song queue/request manager
 
 ## TODO
-- [x] Persistent queue
-- [x] Open/close queue commands
 - [ ] GIFs
 - [ ] Clickable links
 - [ ] Message Effects
 - [ ] Option for stay on top
-- [x] Resizable queue window
-- [x] An X to close the application
-- [x] Combine json config files
-- [x] Sorting/filtering/search options in the website
-- [x] Separate windows for chat and queue
+- [ ] Mac support
+- [ ] Linux support
 
 ## Known Bugs
-- [x] Song scanning can crash (known with rock band songs)
-- [x] Playing some songs can cause a crash (known with rock band songs)
-- [x] Window header can block interaction with popups
-- [x] Early bird redeem will reset if application is closed and reopened
-- [ ] Sub event will display multiple messages
+currently no major bugs are known🤞
 
 ## Third-Party Libraries
 - boost
@@ -27,5 +18,5 @@ A twitch bot, chat viewer, and song queue/request manager
 - openssl
 - rmt_zlib
 - nlohmann/json
-- imgui
+- imgui (docking branch)
 - stb_image
